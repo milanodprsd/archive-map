@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '6';
+  const APP_VERSION = '7';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -286,7 +286,7 @@
       <div class="map-top">
         <div class="between">
           <div><div class="eyebrow">FIELD MAP / 現地調査 · v${APP_VERSION}${navigator.onLine ? '' : ' · <span style="color:var(--accent)">OFFLINE</span>'}</div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">ARCHIVE QUEST</div></div>
-          <a class="rankbadge" href="#/profile" aria-label="Профиль, ранг ${esc(r.name)}"><span class="jp">${esc(r.jp)}</span><span class="mono">${esc(r.name)}</span></a>
+          <a class="rankbadge" href="#/profile" aria-label="Профиль, ранг ${esc(r.name)}">${S.profile.avatar ? '<img class="ava-img" src="' + S.profile.avatar + '" alt="" style="width:24px;height:24px">' : ''}<span class="jp">${esc(r.jp)}</span><span class="mono">${esc(r.name)}</span></a>
         </div>
         <label class="row" style="background:var(--paper);color:var(--ink);height:44px;padding:0 12px">
           <span style="width:18px;height:18px;display:flex" aria-hidden="true">${ICON.search.replace('<svg', '<svg width="18" height="18" fill="none" stroke="#0A0A0A" stroke-width="2"')}</span>
@@ -378,6 +378,25 @@
     const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
     return { lat, lng };
+  }
+  function squareImage(file, size) {
+    return new Promise((res) => {
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+        URL.revokeObjectURL(img.src);
+        res(c.toDataURL('image/jpeg', 0.75));
+      };
+      img.onerror = () => res(null);
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  function avatar(src, name, size, cls) {
+    const st = 'width:' + size + 'px;height:' + size + 'px';
+    return src ? '<img class="ava-img ' + (cls || '') + '" src="' + src + '" alt="" style="' + st + '">' : '<span class="avatar ' + (cls || '') + '" style="' + st + '">' + esc(initials(name)) + '</span>';
   }
   function shrinkImage(file) {
     return new Promise((res) => {
@@ -570,12 +589,13 @@
     } else if (profileTab === 'squad') {
       tabHtml = (S.profile.founder ? '' : '<div class="empty">Выдавать ранги может только ZERO-CLASS. Здесь ты ведёшь список своего отряда.</div>') +
         '<div>' + (S.friends.length ? S.friends.map((f) => `<div class="list-item" style="cursor:default">
-          <span class="avatar">${esc(initials(f.name))}</span>
+          <label class="ava-pick" aria-label="Фото для ${esc(f.name)}">${avatar(f.avatar, f.name, 38)}<input type="file" accept="image/*" data-fa="${f.id}" hidden></label>
           <span class="grow"><span style="display:block;font-size:14px;font-weight:700">${esc(f.name)}</span><span class="small">${esc(rankById(f.rank).name)} · ${esc(rankById(f.rank).jp)}</span></span>
           ${S.profile.founder ? '<a class="btn sm" style="border:1px solid var(--accent);color:var(--accent)" href="#/grant/' + f.id + '">ВЫДАТЬ</a>' : ''}</div>`).join('') : '<div class="empty">В отряде пока никого.</div>') + '</div>' +
         '<form class="row" id="add-friend"><input class="input grow" name="n" maxlength="24" placeholder="Позывной друга" aria-label="Позывной друга"><button class="btn sm ghost" style="height:46px">ДОБАВИТЬ</button></form>';
     } else {
       tabHtml = `<div class="field"><span>ПОЗЫВНОЙ</span><div class="row"><input class="input grow" id="set-name" maxlength="24" value="${esc(S.profile.name)}" aria-label="Позывной"><button class="btn sm ghost" style="height:46px" id="set-name-save">OK</button></div></div>
+        ${S.profile.avatar ? '<button class="btn sm ghost" id="ava-del">УБРАТЬ АВАТАР</button>' : '<div class="small">Аватар: нажми на фото в удостоверении.</div>'}
         <div class="sep"></div>
         <div class="eyebrow">БЭКАП</div>
         <div class="small" style="line-height:1.5">Данные живут только в этом браузере. Сохрани файл, чтобы не потерять точки или перенести их на другой телефон.</div>
@@ -594,7 +614,7 @@
       <div class="topbar"><span style="width:44px"></span><div class="eyebrow">INVESTIGATOR FILE / 捜査官</div><a class="iconbtn" href="#/ranks" aria-label="Лестница рангов" style="font-family:var(--jp);font-weight:900">階</a></div>
       <div class="idcard">
         <div class="row" style="align-items:flex-start;gap:14px">
-          <div class="photo" aria-hidden="true">${esc(r.jp.slice(0, 1))}</div>
+          <label class="photo" aria-label="Сменить аватар" style="cursor:pointer;position:relative">${S.profile.avatar ? '<img class="ava-img" src="' + S.profile.avatar + '" alt="" style="width:100%;height:100%">' : '<span>' + esc(r.jp.slice(0, 1)) + '</span><span class="mono" style="position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:8px;letter-spacing:.08em;color:#555550">+ ФОТО</span>'}<input type="file" accept="image/*" id="ava-me" hidden></label>
           <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
             <div class="mono" style="font-size:9px;letter-spacing:.12em;color:#555550">${S.profile.founder ? 'ID 000-000 · ОСНОВАТЕЛЬ' : 'ID ' + esc(String(Math.abs(hash(S.profile.name)) % 1000000).padStart(6, '0').replace(/(\d{3})(\d{3})/, '$1-$2'))}</div>
             <div style="font-size:24px;font-weight:900;letter-spacing:-.02em;line-height:1;word-break:break-word">${esc(S.profile.name.toUpperCase())}</div>
@@ -629,6 +649,12 @@
     if (af) af.onsubmit = (e) => { e.preventDefault(); const n = e.target.n.value.trim(); if (!n) return; S.friends.push({ id: uid(), name: n, rank: 'r3', history: [] }); save(); renderProfile(); };
     if ($('#set-name-save')) $('#set-name-save').onclick = () => { const n = $('#set-name').value.trim(); if (n) { S.profile.name = n; save(); toast('Сохранено'); renderProfile(); } };
     if ($('#exp')) $('#exp').onclick = exportData;
+    if ($('#ava-me')) $('#ava-me').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; S.profile.avatar = await squareImage(f, 320); save(); renderProfile(); };
+    view().querySelectorAll('[data-fa]').forEach((inp) => inp.onchange = async (e) => {
+      const f = e.target.files[0], fr = S.friends.find((x) => x.id === inp.dataset.fa);
+      if (!f || !fr) return; fr.avatar = await squareImage(f, 160); save(); renderProfile();
+    });
+    if ($('#ava-del')) $('#ava-del').onclick = () => { S.profile.avatar = null; save(); toast('Аватар убран'); renderProfile(); };
     if ($('#tile-count')) askSW('tile-count');
     if ($('#tile-clear')) $('#tile-clear').onclick = () => askSW('clear-tiles');
     if ($('#imp')) $('#imp').onchange = importData;
@@ -674,7 +700,7 @@
     const draw = (signed) => {
       screen(`
         <div class="topbar">${backBtn('#/profile', 'В профиль')}<div class="eyebrow">ПРИКАЗ О ПРИСВОЕНИИ / 辞令</div><span style="width:44px"></span></div>
-        <div class="row box" style="padding:12px;gap:12px"><span class="avatar" style="width:44px;height:44px">${esc(initials(f.name))}</span>
+        <div class="row box" style="padding:12px;gap:12px">${avatar(f.avatar, f.name, 44)}
           <span class="grow"><span style="display:block;font-size:18px;font-weight:800">${esc(f.name)}</span><span class="small">сейчас: ${esc(rankById(f.rank).name)}</span></span></div>
         <div class="eyebrow">НОВЫЙ РАНГ</div>
         <div style="display:flex;flex-direction:column;gap:6px">

@@ -188,3 +188,6 @@ input, select, textarea, .input, #q { font-size: 16px !important; }
 [hidden] { display: none !important; }
 .iconbtn.active { background: var(--accent); border-color: var(--accent); color: var(--ink); }
 .fab-col .iconbtn, .add-hint button { touch-action: manipulation; }
+.ava-img { display: block; flex-shrink: 0; object-fit: cover; filter: grayscale(1) contrast(1.25); }
+.ava-pick { display: inline-flex; cursor: pointer; flex-shrink: 0; }
+.idcard .photo { overflow: hidden; flex-direction: column; }
