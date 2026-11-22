@@ -169,9 +169,9 @@
   function initMap() {
     const last = S.lastView || { lat: 35.6702, lng: 139.7027, z: 14 }; // Харадзюку
     map = L.map('map', { zoomControl: false, attributionControl: true }).setView([last.lat, last.lng], last.z);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd',
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
     markersLayer = L.layerGroup().addTo(map);
     map.on('moveend', () => { const c = map.getCenter(); S.lastView = { lat: c.lat, lng: c.lng, z: map.getZoom() }; save(); });

@@ -15,16 +15,16 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--ink); color: var(--paper); font-family: var(--sans); overscroll-behavior: none; }
+html, body { margin: 0; height: 100%; width: 100%; max-width: 100vw; -webkit-text-size-adjust: 100%; background: var(--ink); color: var(--paper); font-family: var(--sans); overscroll-behavior: none; }
 body { overflow: hidden; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; }
 input, select, textarea { font: inherit; }
 
-#app { position: fixed; inset: 0; }
+#app { position: fixed; inset: 0; overflow: hidden; }
 #map { position: absolute; inset: 0 0 calc(var(--tab-h) + var(--safe-b)) 0; background: #0E0E0E; z-index: 0; }
 .leaflet-container { background: #0E0E0E; font-family: var(--mono); }
-.leaflet-tile-pane { filter: grayscale(1) contrast(1.1) brightness(0.85); }
+.leaflet-tile-pane { filter: invert(1) grayscale(1) brightness(0.72) contrast(1.25); }
 .leaflet-control-attribution { background: rgba(10,10,10,.7) !important; color: #6A6A65 !important; font-size: 9px; }
 .leaflet-control-attribution a { color: #8A8A85 !important; }
 .leaflet-control-zoom { display: none; }
@@ -182,3 +182,6 @@ textarea.input { height: 80px; padding: 10px 12px; resize: vertical; }
   #view > .screen { left: 50%; transform: translateX(-50%); max-width: 480px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
   .line-card, .add-hint { max-width: 456px; }
 }
+
+/* iOS Safari приближает экран, если шрифт поля меньше 16px */
+input, select, textarea, .input, #q { font-size: 16px !important; }
