@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '5';
+  const APP_VERSION = '6';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -171,7 +171,7 @@
     const last = S.lastView || { lat: 35.6702, lng: 139.7027, z: 14 }; // Харадзюку
     map = L.map('map', { zoomControl: false, attributionControl: true }).setView([last.lat, last.lng], last.z);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
+      maxZoom: 19, crossOrigin: true,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
     markersLayer = L.layerGroup().addTo(map);
@@ -285,7 +285,7 @@
     view().innerHTML = `<div class="overlay">
       <div class="map-top">
         <div class="between">
-          <div><div class="eyebrow">FIELD MAP / 現地調査 · v${APP_VERSION}</div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">ARCHIVE QUEST</div></div>
+          <div><div class="eyebrow">FIELD MAP / 現地調査 · v${APP_VERSION}${navigator.onLine ? '' : ' · <span style="color:var(--accent)">OFFLINE</span>'}</div><div style="font-size:22px;font-weight:900;letter-spacing:-.02em">ARCHIVE QUEST</div></div>
           <a class="rankbadge" href="#/profile" aria-label="Профиль, ранг ${esc(r.name)}"><span class="jp">${esc(r.jp)}</span><span class="mono">${esc(r.name)}</span></a>
         </div>
         <label class="row" style="background:var(--paper);color:var(--ink);height:44px;padding:0 12px">
@@ -581,6 +581,10 @@
         <div class="small" style="line-height:1.5">Данные живут только в этом браузере. Сохрани файл, чтобы не потерять точки или перенести их на другой телефон.</div>
         <div class="row"><button class="btn sm ghost grow" id="exp">СКАЧАТЬ БЭКАП</button><label class="btn sm ghost grow" style="cursor:pointer">ЗАГРУЗИТЬ<input type="file" id="imp" accept="application/json,.json" hidden></label></div>
         <div class="sep"></div>
+        <div class="eyebrow">ОФЛАЙН</div>
+        <div class="small" style="line-height:1.5">Приложение, точки и ранги работают без сети. Карта офлайн показывает районы, которые ты уже смотрел онлайн: перед поездкой пролистай нужный район на тех масштабах, что понадобятся.</div>
+        <div class="between"><span class="mono" style="font-size:12px" id="tile-count">Сохранено тайлов: …</span><button class="btn sm ghost" id="tile-clear">ОЧИСТИТЬ</button></div>
+        <div class="sep"></div>
         ${S.profile.founder ? '<div class="small">Режим основателя включён на этом устройстве.</div><button class="btn sm ghost" id="founder-off">ВЫКЛЮЧИТЬ РЕЖИМ ОСНОВАТЕЛЯ</button>'
           : '<div class="eyebrow">РЕЖИМ ОСНОВАТЕЛЯ</div><form class="row" id="founder"><input class="input grow" name="c" placeholder="Код основателя" autocomplete="off" aria-label="Код основателя"><button class="btn sm ghost" style="height:46px">ВОЙТИ</button></form>'}
         <a class="btn sm ghost" href="#/ranks">ЛЕСТНИЦА РАНГОВ</a>`;
@@ -625,6 +629,8 @@
     if (af) af.onsubmit = (e) => { e.preventDefault(); const n = e.target.n.value.trim(); if (!n) return; S.friends.push({ id: uid(), name: n, rank: 'r3', history: [] }); save(); renderProfile(); };
     if ($('#set-name-save')) $('#set-name-save').onclick = () => { const n = $('#set-name').value.trim(); if (n) { S.profile.name = n; save(); toast('Сохранено'); renderProfile(); } };
     if ($('#exp')) $('#exp').onclick = exportData;
+    if ($('#tile-count')) askSW('tile-count');
+    if ($('#tile-clear')) $('#tile-clear').onclick = () => askSW('clear-tiles');
     if ($('#imp')) $('#imp').onchange = importData;
     const fo = $('#founder');
     if (fo) fo.onsubmit = async (e) => {
@@ -749,10 +755,25 @@
     `);
   }
 
+  // ---------- офлайн ----------
+  function askSW(msg) {
+    const el = $('#tile-count');
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) { if (el) el.textContent = 'Офлайн-кэш включится после перезапуска'; return; }
+    navigator.serviceWorker.controller.postMessage(msg);
+  }
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      const el = $('#tile-count');
+      if (el && e.data && 'tileCount' in e.data) el.textContent = 'Сохранено тайлов: ' + fmtNum(e.data.tileCount) + ' / ' + fmtNum(e.data.max);
+    });
+  }
+  window.addEventListener('online', () => { if (/^#\/?(map)?$/.test(location.hash)) route(); toast('Сеть вернулась'); });
+  window.addEventListener('offline', () => { if (/^#\/?(map)?$/.test(location.hash)) route(); toast('Офлайн: работают точки и сохранённая карта'); });
+
   // ---------- старт ----------
   initMap();
   route();
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 })();
