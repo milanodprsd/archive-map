@@ -176,13 +176,22 @@
     markersLayer = L.layerGroup().addTo(map);
     map.on('moveend', () => { const c = map.getCenter(); S.lastView = { lat: c.lat, lng: c.lng, z: map.getZoom() }; save(); });
     map.on('click', (e) => { if (addMode) { setAddMode(false); openPointForm({ lat: e.latlng.lat, lng: e.latlng.lng }); } });
-    if (navigator.geolocation) {
-      navigator.geolocation.watchPosition((pos) => {
-        myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude }; myPosAt = Date.now(); myAcc = pos.coords.accuracy || 0;
-        if (!meMarker) meMarker = L.marker([myPos.lat, myPos.lng], { icon: L.divIcon({ className: '', html: '<div class="me-dot"></div>', iconSize: [14, 14] }), interactive: false }).addTo(map);
-        else meMarker.setLatLng([myPos.lat, myPos.lng]);
-      }, () => {}, { enableHighAccuracy: true, maximumAge: 15000 });
-    }
+    startWatch();
+  }
+  let watchId = null, centeredOnMe = false;
+  function onPos(pos) {
+    myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude }; myPosAt = Date.now(); myAcc = pos.coords.accuracy || 0;
+    if (!meMarker) meMarker = L.marker([myPos.lat, myPos.lng], { icon: L.divIcon({ className: '', html: '<div class="me-dot"></div>', iconSize: [14, 14] }), interactive: false, zIndexOffset: 1000 }).addTo(map);
+    else meMarker.setLatLng([myPos.lat, myPos.lng]);
+    if (!centeredOnMe) { centeredOnMe = true; map.setView([myPos.lat, myPos.lng], Math.max(map.getZoom(), 15)); }
+  }
+  function geoError(err) {
+    if (err && err.code === 1) toast('Нет доступа к геолокации. iPhone: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании».');
+    else toast('Не удалось определить место. Проверь, что геолокация включена.');
+  }
+  function startWatch() {
+    if (!navigator.geolocation || watchId !== null) return;
+    watchId = navigator.geolocation.watchPosition(onPos, (err) => { if (err.code === 1) { navigator.geolocation.clearWatch(watchId); watchId = null; } }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
   }
   let searchQ = '';
   function visiblePoints() {
@@ -200,14 +209,20 @@
   }
   function setAddMode(on) {
     addMode = on;
-    if ($('#addhint')) $('#addhint').hidden = !on;
+    const h = $('#addhint');
+    if (h) h.style.display = on ? 'flex' : 'none';
+    const f = $('#fab-add');
+    if (f) { f.classList.toggle('active', on); f.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+    if (on) startWatch();
   }
   function locate() {
-    if (!navigator.geolocation) return toast('Геолокация недоступна');
+    if (!navigator.geolocation) return toast('Геолокация недоступна в этом браузере');
+    toast('Ищу тебя…');
     navigator.geolocation.getCurrentPosition((pos) => {
-      myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude }; myPosAt = Date.now(); myAcc = pos.coords.accuracy || 0;
+      centeredOnMe = true; onPos(pos);
       map.setView([myPos.lat, myPos.lng], 16);
-    }, () => toast('Разреши доступ к геолокации в настройках'), { enableHighAccuracy: true, timeout: 10000 });
+      startWatch();
+    }, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
   }
 
   // ---------- роутер ----------
@@ -279,7 +294,7 @@
         </label>
         <div class="chips">${chips}</div>
       </div>
-      <div class="add-hint" id="addhint" ${addMode ? '' : 'hidden'}><span>Коснись карты, где поставить точку</span>
+      <div class="add-hint" id="addhint" style="display:${addMode ? 'flex' : 'none'}"><span>Коснись карты, где поставить точку</span>
         <span class="row"><button class="btn sm" style="background:var(--ink);color:var(--paper)" id="add-here">СЮДА, ГДЕ Я</button>
         <button class="iconbtn" style="width:36px;height:36px;border-color:var(--ink);background:transparent;color:var(--ink)" id="add-cancel" aria-label="Отмена">${ICON.close}</button></span></div>
       <div class="fab-col">
@@ -295,12 +310,15 @@
       save(); renderMap(); drawMarkers();
     });
     $('#q').oninput = (e) => { searchQ = e.target.value.trim().toLowerCase(); drawMarkers(); };
-    $('#fab-add').onclick = () => setAddMode(true);
+    $('#fab-add').onclick = () => { setAddMode(!addMode); if (addMode) toast('Коснись карты, где поставить точку'); };
     $('#fab-loc').onclick = locate;
     $('#add-cancel').onclick = () => setAddMode(false);
     $('#add-here').onclick = () => {
-      if (!myPos) return toast('Жду геолокацию… нажми ◎');
-      setAddMode(false); openPointForm({ lat: myPos.lat, lng: myPos.lng });
+      const go = () => { setAddMode(false); openPointForm({ lat: myPos.lat, lng: myPos.lng }); };
+      if (myPos && Date.now() - myPosAt < 60000) return go();
+      if (!navigator.geolocation) return toast('Геолокация недоступна');
+      toast('Ищу тебя…');
+      navigator.geolocation.getCurrentPosition((pos) => { onPos(pos); go(); }, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
     };
     drawMarkers();
   }
