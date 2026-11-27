@@ -18,6 +18,7 @@
   let members = [];
   let locations = [];
   let founderExists = true;
+  let loadError = '';             // почему отряд не загрузился (показываем вместо вечной загрузки)
   let pollTimer = null, pushTimer = null, lastPushed = '', lastShareAt = 0;
   let squadLayer = null;
 
@@ -39,16 +40,36 @@
     if (/Password should be/i.test(m)) return 'Пароль слишком простой (нужно от 6 символов)';
     if (/signups not allowed|Signups not allowed/i.test(m)) return 'Регистрация выключена в Supabase';
     if (/rate limit/i.test(m)) return 'Слишком часто. Подожди минуту';
+    if (/relation .* does not exist|Could not find the (table|function)|schema cache/i.test(m)) return 'В Supabase нет таблиц. Запусти supabase/schema.sql';
+    if (/JWT|token/i.test(m)) return 'Сессия устарела. Выйди и войди снова в «Настройках»';
     if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Нет связи с сервером';
     return m;
   }
 
   // ---------- загрузка с сервера ----------
   async function refresh() {
+    try { await refreshInner(); } catch (e) {
+      console.warn(e);
+      if (!me) { loadError = errText(e); A.onSyncChange(); }
+    }
+  }
+  async function refreshInner() {
     if (!sb || !session) return;
     const uid = session.user.id;
-    const { data: mine, error } = await sb.from('profiles').select('*').eq('id', uid).maybeSingle();
-    if (error) { console.warn(error); return; }
+    let { data: mine, error } = await sb.from('profiles').select('*').eq('id', uid).maybeSingle();
+    if (!error && !mine) {
+      // аккаунт создан раньше, чем схема в Supabase: создаём профиль сами
+      const fix = await sb.rpc('ensure_profile');
+      if (fix.error) console.warn(fix.error);
+      ({ data: mine, error } = await sb.from('profiles').select('*').eq('id', uid).maybeSingle());
+    }
+    if (error || !mine) {
+      console.warn(error);
+      loadError = error ? errText(error) : 'Профиль не найден на сервере. Запусти supabase/schema.sql ещё раз.';
+      A.onSyncChange();
+      return;
+    }
+    loadError = '';
     me = mine;
     const S = A.S();
     if (me) {
@@ -194,6 +215,7 @@
   function squadHtml() {
     if (!enabled) return null;
     if (!session) return `<div class="empty">Чтобы видеть друзей и их аватарки, войди в «Настройках → Отряд онлайн».</div>`;
+    if (!me && loadError) return `<div class="empty">Отряд не загрузился: ${esc(loadError)}<br><br><button class="btn block" id="sq-retry">ПОВТОРИТЬ</button></div>`;
     if (!me) return `<div class="empty">Загружаю отряд…</div>`;
     if (!me.squad_id) {
       return `${!founderExists ? `<div class="card"><div class="h2">零 СТАТЬ ОСНОВАТЕЛЕМ</div><div class="mono" style="font-size:11px;line-height:1.5">Основатель один на весь мир: кто нажмёт первым, тот получит ZERO-CLASS и создаст отряд.</div><button class="btn primary block" id="sq-claim">Я ОСНОВАТЕЛЬ</button></div>` : ''}
@@ -230,6 +252,8 @@
   }
   function bindSquad() {
     if (!online()) return;
+    const retry = document.getElementById('sq-retry');
+    if (retry) retry.onclick = () => { loadError = ''; A.onSyncChange(); refresh(); };
     const claim = document.getElementById('sq-claim');
     if (claim) claim.onclick = async () => {
       const { error } = await sb.rpc('claim_founder', { squad_name: 'ОТРЯД ' + (A.S().profile.name || '').toUpperCase() });

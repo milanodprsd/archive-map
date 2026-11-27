@@ -54,6 +54,17 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- профили для аккаунтов, созданных до запуска этой схемы
+insert into public.profiles (id) select id from auth.users on conflict do nothing;
+
+-- создать свой профиль, если его нет (вызывает приложение)
+create or replace function public.ensure_profile() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  insert into profiles (id) values (auth.uid()) on conflict do nothing;
+end $$;
+
 -- мой отряд (для правил доступа)
 create or replace function public.my_squad() returns uuid
 language sql stable security definer set search_path = public as $$
@@ -162,7 +173,7 @@ begin
   update profiles set squad_id = null, granted_rank = null where id = target and squad_id = sid and not is_founder;
 end $$;
 
-grant execute on function public.claim_founder(text), public.founder_exists(), public.join_squad(text),
+grant execute on function public.claim_founder(text), public.founder_exists(), public.ensure_profile(), public.join_squad(text),
   public.leave_squad(), public.grant_rank(uuid, text, text), public.kick_member(uuid) to authenticated;
-revoke execute on function public.claim_founder(text), public.join_squad(text), public.leave_squad(),
+revoke execute on function public.claim_founder(text), public.ensure_profile(), public.join_squad(text), public.leave_squad(),
   public.grant_rank(uuid, text, text), public.kick_member(uuid) from anon, public;
