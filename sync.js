@@ -18,7 +18,6 @@
   let members = [];
   let locations = [];
   let founderExists = true;
-  let otpEmail = '';
   let pollTimer = null, pushTimer = null, lastPushed = '', lastShareAt = 0;
   let squadLayer = null;
 
@@ -37,7 +36,8 @@
     if (/founder already exists/.test(m)) return 'Основатель уже есть';
     if (/bad invite code/.test(m)) return 'Неверный код отряда';
     if (/only founder/.test(m)) return 'Только ZERO-CLASS';
-    if (/Token has expired|invalid/i.test(m)) return 'Код не подошёл или устарел';
+    if (/Password should be/i.test(m)) return 'Пароль слишком простой (нужно от 6 символов)';
+    if (/signups not allowed|Signups not allowed/i.test(m)) return 'Регистрация выключена в Supabase';
     if (/rate limit/i.test(m)) return 'Слишком часто. Подожди минуту';
     if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Нет связи с сервером';
     return m;
@@ -145,12 +145,12 @@
     if (!enabled) return '';
     let body;
     if (!session) {
-      body = otpEmail
-        ? `<div class="small" style="line-height:1.5">Код отправлен на ${esc(otpEmail)}. Введи 6 цифр из письма.</div>
-           <form class="row" id="sq-otp"><input class="input grow" name="c" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="Код из письма" aria-label="Код из письма"><button class="btn sm ghost" style="height:46px">ВОЙТИ</button></form>
-           <button class="btn sm ghost" id="sq-otp-back" type="button">ДРУГАЯ ПОЧТА</button>`
-        : `<div class="small" style="line-height:1.5">Войди по почте, чтобы видеть отряд, аватарки друзей и где они сейчас. Пароль не нужен: придёт код.</div>
-           <form class="row" id="sq-mail"><input class="input grow" name="e" type="email" autocomplete="email" required placeholder="почта" aria-label="Почта"><button class="btn sm ghost" style="height:46px">КОД</button></form>`;
+      body = `<div class="small" style="line-height:1.5">Войди, чтобы видеть отряд, аватарки друзей и где они сейчас. Первый вход по почте и паролю создаёт аккаунт.</div>
+        <form id="sq-pass" style="display:flex;flex-direction:column;gap:8px">
+          <input class="input" name="e" type="email" autocomplete="username" required placeholder="почта" aria-label="Почта">
+          <input class="input" name="p" type="password" autocomplete="current-password" required minlength="6" placeholder="пароль (от 6 символов)" aria-label="Пароль">
+          <button class="btn sm ghost" style="height:46px">ВОЙТИ / СОЗДАТЬ АККАУНТ</button>
+        </form>`;
     } else {
       body = `<div class="small">Вошёл как ${esc(session.user.email || '')}${me && me.is_founder ? ' · ZERO-CLASS' : ''}</div>
         <button class="btn sm ghost" id="sq-out" type="button">ВЫЙТИ ИЗ АККАУНТА</button>`;
@@ -159,26 +159,27 @@
   }
   function bindSettings() {
     if (!enabled) return;
-    const mail = document.getElementById('sq-mail');
-    if (mail) mail.onsubmit = async (e) => {
+    const form = document.getElementById('sq-pass');
+    if (form) form.onsubmit = async (e) => {
       e.preventDefault();
-      const email = e.target.e.value.trim();
-      const btn = mail.querySelector('button'); btn.disabled = true;
-      const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-      btn.disabled = false;
-      if (error) return A.toast(errText(error));
-      otpEmail = email; A.toast('Код отправлен на почту'); A.rerender();
+      const email = e.target.e.value.trim(), password = e.target.p.value;
+      const btn = form.querySelector('button'); btn.disabled = true;
+      try {
+        let { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error && /invalid login credentials/i.test(error.message)) {
+          const r = await sb.auth.signUp({ email, password });
+          if (r.error) {
+            if (/already registered|already exists/i.test(r.error.message)) return A.toast('Неверный пароль');
+            return A.toast(errText(r.error));
+          }
+          if (!r.data.session) return A.toast('Supabase ждёт подтверждения почты. Выключи «Confirm email» в настройках входа.');
+          A.toast('Аккаунт создан');
+        } else if (error) {
+          if (/email not confirmed/i.test(error.message)) return A.toast('Почта не подтверждена. Выключи «Confirm email» в Supabase.');
+          return A.toast(errText(error));
+        } else A.toast('Вход выполнен');
+      } finally { btn.disabled = false; }
     };
-    const otp = document.getElementById('sq-otp');
-    if (otp) otp.onsubmit = async (e) => {
-      e.preventDefault();
-      const token = e.target.c.value.replace(/\s/g, '');
-      const { error } = await sb.auth.verifyOtp({ email: otpEmail, token, type: 'email' });
-      if (error) return A.toast(errText(error));
-      otpEmail = ''; A.toast('Вход выполнен');
-    };
-    const back = document.getElementById('sq-otp-back');
-    if (back) back.onclick = () => { otpEmail = ''; A.rerender(); };
     const out = document.getElementById('sq-out');
     if (out) out.onclick = async () => {
       if (sharing()) await stopSharing();
@@ -300,7 +301,7 @@
   function handleJoinLink(code) {
     pendingJoin = (code || '').toUpperCase();
     if (!enabled) { A.toast('Сервер отряда не настроен'); location.hash = '#/profile'; return; }
-    if (!session) A.toast('Войди по почте, потом нажми «Вступить»');
+    if (!session) A.toast('Войди в «Настройках → Отряд онлайн», потом нажми «Вступить»');
     A.openSquadTab();
   }
 
