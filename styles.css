@@ -117,7 +117,7 @@ textarea.input { height: 80px; padding: 10px 12px; resize: vertical; }
 .rankbadge .mono { font-size: 10px; letter-spacing: .1em; }
 .fab-col { position: absolute; right: 12px; bottom: 150px; display: flex; flex-direction: column; gap: 8px; }
 .line-card { position: absolute; left: 12px; right: 12px; bottom: 12px; }
-.add-hint { position: absolute; left: 12px; right: 12px; top: calc(176px + var(--safe-t)); background: var(--accent); color: var(--ink); padding: 12px; font-family: var(--mono); font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.add-hint { position: absolute; left: 12px; right: 12px; top: calc(176px + var(--safe-t)); background: var(--accent); color: var(--ink); padding: 12px; font-family: var(--mono); font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 .pin { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%); position: absolute; left: 0; top: 0; }
 .pin .lbl { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .05em; padding: 4px 6px; white-space: nowrap; background: var(--paper); color: var(--ink); box-shadow: 0 0 0 2px var(--ink); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
@@ -267,3 +267,9 @@ input, select, textarea, .input, #q { font-size: 16px !important; }
 .doc-code .bars { flex: 1; max-width: 140px; height: 14px; background: repeating-linear-gradient(90deg, #0A0A0A 0 2px, transparent 2px 4px, #0A0A0A 4px 5px, transparent 5px var(--seed, 7px)); }
 .doc-nine { box-shadow: 0 0 0 1px #000, 6px 6px 0 0 var(--accent); }
 .doc-nine .doc-title .jp { background: var(--accent); color: var(--ink); }
+
+/* ---------- поиск места ---------- */
+.geo-res { display: flex; flex-direction: column; gap: 4px; }
+.geo-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 9px 12px; background: var(--ink); color: var(--paper); border: 1px solid var(--line-2); cursor: pointer; width: 100%; }
+.geo-opt b { font-size: 14px; }
+.geo-opt span { font-family: var(--mono); font-size: 11px; color: var(--muted); }

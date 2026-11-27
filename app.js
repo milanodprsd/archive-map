@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '13';
+  const APP_VERSION = '14';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -291,6 +291,7 @@
     if (f) { f.classList.toggle('active', on === true); f.setAttribute('aria-pressed', on === true ? 'true' : 'false'); }
     if (z) { z.classList.toggle('active', on === 'zone'); z.setAttribute('aria-pressed', on === 'zone' ? 'true' : 'false'); }
     const here = $('#add-here'); if (here) here.hidden = on === 'zone';
+    const addr = $('#add-addr'); if (addr) addr.hidden = on === 'zone';
     if (on) startWatch();
   }
   function locate() {
@@ -376,7 +377,7 @@
         <div class="chips">${chips}</div>
       </div>
       <div class="add-hint" id="addhint" style="display:${addMode ? 'flex' : 'none'}"><span id="addhint-text">${addMode === 'zone' ? 'Коснись карты: центр запретной зоны' : 'Коснись карты, где поставить точку'}</span>
-        <span class="row"><button class="btn sm" style="background:var(--ink);color:var(--paper)" id="add-here">СЮДА, ГДЕ Я</button>
+        <span class="row"><button class="btn sm" style="background:var(--ink);color:var(--paper)" id="add-here">СЮДА, ГДЕ Я</button><button class="btn sm" style="background:var(--ink);color:var(--paper)" id="add-addr">ПО АДРЕСУ</button>
         <button class="iconbtn" style="width:36px;height:36px;border-color:var(--ink);background:transparent;color:var(--ink)" id="add-cancel" aria-label="Отмена">${ICON.close}</button></span></div>
       <div class="fab-col">
         <button class="iconbtn light" id="fab-add" aria-label="Добавить точку">${ICON.plus}</button>
@@ -406,7 +407,8 @@
       toast('Ищу тебя…');
       navigator.geolocation.getCurrentPosition((pos) => { onPos(pos); go(); }, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
     };
-    if (addMode === 'zone') $('#add-here').hidden = true;
+    $('#add-addr').onclick = () => { const c = map.getCenter(); setAddMode(false); openPointForm({ lat: c.lat, lng: c.lng, search: true }); };
+    if (addMode === 'zone') { $('#add-here').hidden = true; $('#add-addr').hidden = true; }
     drawMarkers();
     drawZones();
   }
@@ -420,10 +422,13 @@
     bg.innerHTML = `<form class="sheet" id="pf">
       <div class="between"><div class="h2">${existing ? 'ПРАВКА ТОЧКИ' : 'НОВАЯ ТОЧКА'}</div><button type="button" class="iconbtn" id="pf-x" aria-label="Закрыть">${ICON.close}</button></div>
       <label class="field"><span>НАЗВАНИЕ</span><input class="input" name="name" required maxlength="40" value="${esc(p.name)}" placeholder="например, Kinji Harajuku"></label>
+      <div class="field"><span>ГДЕ: АДРЕС, НАЗВАНИЕ, ССЫЛКА ИЛИ КООРДИНАТЫ</span>
+        <div class="row"><input class="input grow" name="coords" value="${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}" inputmode="text" autocomplete="off" aria-label="Где" placeholder="Takeshita St, Harajuku"><button type="button" class="btn sm ghost" style="height:46px" id="pf-find">НАЙТИ</button></div>
+        <div id="pf-res" class="geo-res"></div>
+        <span class="small" id="pf-where" style="letter-spacing:0">Точка: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</span></div>
       <label class="field"><span>КАТЕГОРИЯ</span><select class="input" name="cat">${allCats().map((c) => '<option value="' + c.id + '"' + (c.id === p.cat ? ' selected' : '') + '>' + esc(c.jp + ' · ' + c.name) + '</option>').join('')}</select></label>
       <label class="field"><span>КВЕСТ-ЛИНИЯ (НЕОБЯЗАТЕЛЬНО)</span><input class="input" name="line" list="pf-lines" maxlength="30" value="${esc(p.line)}" placeholder="например, Урахара"><datalist id="pf-lines">${lineNames.map((n) => '<option value="' + esc(n) + '">').join('')}</datalist></label>
       <label class="field"><span>ЗАМЕТКА / АДРЕС</span><textarea class="input" name="note" maxlength="300" placeholder="часы работы, что искать…">${esc(p.note)}</textarea></label>
-      <label class="field"><span>КООРДИНАТЫ ИЛИ ССЫЛКА GOOGLE MAPS</span><input class="input" name="coords" value="${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}" inputmode="text"></label>
       <label class="field"><span>ФОТО (НЕОБЯЗАТЕЛЬНО)</span><input class="input" type="file" name="photo" accept="image/*" style="padding-top:12px"></label>
       <button class="btn primary block" type="submit">${existing ? 'СОХРАНИТЬ' : 'ПОСТАВИТЬ ТОЧКУ'}</button>
       ${existing ? '<button type="button" class="btn ghost block" id="pf-del">УДАЛИТЬ ТОЧКУ</button>' : ''}
@@ -439,11 +444,47 @@
         S.points = S.points.filter((x) => x.id !== p.id); save(); close(); location.hash = '#/map';
       };
     }
+    const whereIn = $('[name=coords]', bg), resBox = $('#pf-res', bg), findBtn = $('#pf-find', bg);
+    let picked = null; // выбранный результат поиска
+    whereIn.addEventListener('focus', () => { if (/^-?\d+\.\d+, -?\d+\.\d+$/.test(whereIn.value)) whereIn.select(); });
+    whereIn.addEventListener('input', () => { picked = null; });
+    const pick = (r) => {
+      picked = r; whereIn.value = r.label; resBox.innerHTML = '';
+      $('#pf-where', bg).textContent = 'Точка: ' + r.lat.toFixed(5) + ', ' + r.lng.toFixed(5);
+      const nm = $('[name=name]', bg); if (!nm.value.trim() && r.name) nm.value = r.name.slice(0, 40);
+      const nt = $('[name=note]', bg); if (!nt.value.trim() && r.address) nt.value = r.address.slice(0, 300);
+    };
+    const find = async () => {
+      const q = whereIn.value.trim();
+      const direct = parseCoords(q);
+      if (direct) { picked = null; resBox.innerHTML = ''; $('#pf-where', bg).textContent = 'Точка: ' + direct.lat.toFixed(5) + ', ' + direct.lng.toFixed(5); return direct; }
+      const text = geoText(q);
+      if (!text) { toast(/goo\.gl|maps\.app/.test(q) ? 'Короткую ссылку Google не открыть из приложения. Вставь название или адрес места' : 'Напиши адрес или название'); return null; }
+      if (!navigator.onLine) { toast('Для поиска адреса нужен интернет. Офлайн работают только координаты'); return null; }
+      findBtn.disabled = true; findBtn.textContent = '…';
+      try {
+        const list = await geocode(text);
+        if (!list.length) { resBox.innerHTML = '<div class="small">Ничего не нашёл. Попробуй адрес или добавь город к названию.</div>'; return null; }
+        if (list.length === 1) { pick(list[0]); return list[0]; }
+        resBox.innerHTML = list.map((r, i) => '<button type="button" class="geo-opt" data-i="' + i + '"><b>' + esc(r.name || r.label) + '</b><span>' + esc(r.address || '') + '</span></button>').join('');
+        resBox.querySelectorAll('[data-i]').forEach((b) => b.onclick = () => pick(list[+b.dataset.i]));
+        return 'choose';
+      } catch (err) { toast('Поиск не ответил. Проверь интернет'); return null; }
+      finally { findBtn.disabled = false; findBtn.textContent = 'НАЙТИ'; }
+    };
+    findBtn.onclick = find;
+    if (base && base.search) { whereIn.value = ''; $('#pf-where', bg).textContent = 'Напиши адрес или название и нажми «НАЙТИ»'; setTimeout(() => whereIn.focus(), 50); }
+    whereIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); find(); } });
     $('#pf', bg).onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target;
-      const ll = parseCoords(f.coords.value);
-      if (!ll) return toast('Не понял координаты. Формат: 35.67, 139.70');
+      let ll = picked && picked.label === whereIn.value ? picked : parseCoords(f.coords.value);
+      if (!ll) {
+        const r = await find();
+        if (r === 'choose') return toast('Выбери место из списка');
+        if (!r) return;
+        ll = r;
+      }
       const catChanged = p.cat !== f.cat.value;
       p.name = f.name.value.trim();
       p.cat = f.cat.value;
@@ -458,9 +499,37 @@
       location.hash = '#/point/' + p.id; route();
     };
   }
+  // текст для поиска: из «поделиться» Google Maps убираем ссылки
+  function geoText(s) {
+    return s.replace(/https?:\/\/\S+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  // поиск адреса/названия через OpenStreetMap Nominatim (по кнопке, не на каждую букву)
+  async function geocode(q) {
+    const c = map ? map.getCenter() : null;
+    const u = new URL('https://nominatim.openstreetmap.org/search');
+    u.searchParams.set('q', q); u.searchParams.set('format', 'jsonv2'); u.searchParams.set('limit', '6');
+    u.searchParams.set('accept-language', 'ru,en,ja');
+    if (c) { const d = 2; u.searchParams.set('viewbox', [c.lng - d, c.lat + d, c.lng + d, c.lat - d].join(',')); }
+    const res = await fetch(u.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error('geocode ' + res.status);
+    const data = await res.json();
+    return data.map((r) => {
+      const parts = String(r.display_name || '').split(', ');
+      const name = r.name || parts[0] || '';
+      const address = parts.slice(r.name ? 1 : 0, 5).join(', ');
+      return { lat: parseFloat(r.lat), lng: parseFloat(r.lon), name, address, label: [name, address].filter(Boolean).join(', ').slice(0, 120) };
+    }).filter((r) => isFinite(r.lat) && isFinite(r.lng));
+  }
   function parseCoords(s) {
     s = s.trim();
-    let m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || s.match(/[?&](?:q|ll|query)=(-?\d+\.\d+)(?:,|%2C)\s*(-?\d+\.\d+)/i) || s.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+    // точные координаты места в длинной ссылке Google: !3d<lat>!4d<lng>
+    const pin = s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+    if (pin) return { lat: parseFloat(pin[1]), lng: parseFloat(pin[2]) };
+    const geo = s.match(/^geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/i);
+    if (geo) return { lat: parseFloat(geo[1]), lng: parseFloat(geo[2]) };
+    if (/https?:\/\//.test(s) && !/@-?\d|[?&](q|ll|query|sll|daddr)=-?\d/i.test(s)) return null; // ссылка без координат
+    if (!/https?:\/\//.test(s) && !/^[-+\d.,;\s°NSEWnsew]+$/.test(s)) return null; // это адрес, а не числа
+    let m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || s.match(/[?&](?:q|ll|query|sll|daddr)=(-?\d+\.\d+)(?:,|%2C)\s*(-?\d+\.\d+)/i) || s.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
     if (!m) return null;
     const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
     if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
