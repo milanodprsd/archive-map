@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '14';
+  const APP_VERSION = '15';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -42,6 +42,35 @@
     caf: [['Отметиться на точке', 60], ['Взять фирменное', 30], ['Сфоткать интерьер', 30]],
     _: [['Отметиться на точке', 60], ['Сделать фото', 30], ['Своя задача (бонус)', 30]]
   };
+  // бонусные задания: третье задание точки выпадает отсюда случайно
+  const BONUS_POOL = [
+    { id: 'clue', jp: '証', t: 'Улика: сфоткай самую странную вещь на точке', xp: 30 },
+    { id: 'night', jp: '夜', t: 'Ночная смена: приди после заката и сними вывеску', xp: 40 },
+    { id: 'coffee', jp: '珈', t: 'Кофе следователя: выпей кофе в радиусе 300 м', xp: 30 },
+    { id: 'mask', jp: '面', t: 'Маска: найди вещь, похожую на маску, и сфоткай', xp: 40 },
+    { id: 'quinque', jp: '武', t: 'Квинке: найди самую дорогую вещь и сними ценник', xp: 30 },
+    { id: 'interrogate', jp: '尋', t: 'Допрос: узнай у продавца, что здесь самое редкое', xp: 40 },
+    { id: 'cover', jp: '影', t: 'Под прикрытием: селфи в отражении витрины без лица', xp: 30 },
+    { id: 'dossier', jp: '帳', t: 'Досье: сохрани визитку, чек или флаер точки', xp: 20 },
+    { id: 'red', jp: '赤', t: 'Красный след: три красные вещи в одном кадре', xp: 40 },
+    { id: 'kagune', jp: '翼', t: 'Кагунэ: сфоткай что-то в форме крыла или щупальца', xp: 40 },
+    { id: 'tail', jp: '尾', t: 'Хвост: найди рядом ещё одну точку той же категории', xp: 50 },
+    { id: 'year', jp: '年', t: 'Архивный номер: найди самую старую дату или год выпуска', xp: 40 },
+    { id: 'silence', jp: '静', t: 'Тишина: 15 минут на точке без телефона', xp: 30 },
+    { id: 'partner', jp: '組', t: 'Напарник: приди вместе с кем-то из отряда', xp: 60 },
+    { id: 'xerox', jp: '複', t: 'Ксерокс: ч/б кадр точки в стиле досье', xp: 20 }
+  ];
+  function rollBonus(exclude) {
+    const pool = BONUS_POOL.filter((b) => !(exclude || []).includes(b.id));
+    const b = pool[Math.floor(Math.random() * pool.length)] || BONUS_POOL[0];
+    return { t: b.t, xp: b.xp, done: false, bonus: b.id };
+  }
+  function makeTasks(cat) {
+    const base = (TASK_PRESETS[cat] || TASK_PRESETS._).slice(0, 2).map(([t, xp]) => ({ t, xp, done: false }));
+    // не повторяем бонус, который выпал на последних точках
+    const recent = S.points.slice(-3).map((x) => (x.tasks || []).find((t) => t.bonus)).filter(Boolean).map((t) => t.bonus);
+    return base.concat(rollBonus(recent));
+  }
 
   const SEALS = {
     captured: { jp: '占', name: 'ЗАХВАЧЕНО', hint: 'Был здесь, второй раз не нужно' },
@@ -492,7 +521,7 @@
       p.note = f.note.value.trim();
       p.lat = ll.lat; p.lng = ll.lng;
       if (f.photo.files[0]) p.photo = await shrinkImage(f.photo.files[0]);
-      if (!existing || (catChanged && !p.cleared)) p.tasks = (TASK_PRESETS[p.cat] || TASK_PRESETS._).map(([t, xp]) => ({ t, xp, done: false }));
+      if (!existing || (catChanged && !p.cleared)) p.tasks = makeTasks(p.cat);
       if (!existing) { p.created = new Date().toISOString(); p.cleared = false; S.points.push(p); }
       save(); close();
       toast(existing ? 'Сохранено' : 'Точка поставлена');
@@ -600,10 +629,14 @@
       </div>
       <div>
         <div class="eyebrow" style="padding-bottom:6px">ЗАДАЧИ КВЕСТА / 任務</div>
-        ${p.tasks.map((t, i) => `<button class="list-item" data-t="${i}">
+        ${p.tasks.map((t, i) => {
+          const b = t.bonus && BONUS_POOL.find((x) => x.id === t.bonus);
+          const canRoll = i === 2 && !t.done && !p.cleared && (p.rerolls || 0) < 1;
+          return `<div class="row" style="gap:0"><button class="list-item grow" data-t="${i}">
           <span class="check ${t.done ? 'on' : ''}">${t.done ? '✓' : ''}</span>
-          <span class="grow" style="font-size:14px;font-weight:600">${esc(t.t)}</span>
-          <span class="small">+${t.xp}</span></button>`).join('')}
+          <span class="grow" style="font-size:14px;font-weight:600">${b ? '<span class="bonus-tag">' + esc(b.jp) + ' БОНУС</span>' : ''}${esc(t.t)}</span>
+          <span class="small">+${t.xp}</span></button>${canRoll ? '<button class="iconbtn" id="pt-reroll" aria-label="Другой бонус" title="Другой бонус (1 раз)" style="height:auto;align-self:stretch;color:var(--accent);font-size:18px">↻</button>' : ''}</div>`;
+        }).join('')}
       </div>
       ${p.cleared ? `<div class="row" style="gap:14px">
           <div class="stamp" style="width:96px;height:96px;flex-shrink:0"><span class="jp" style="font-size:30px;line-height:1">済</span><span class="mono" style="font-size:8px;letter-spacing:.1em">${p.geo ? 'CLEARED' : 'NO GEO'}</span><span class="mono" style="font-size:8px">${fmtDate(p.clearedAt)}</span></div>
@@ -624,6 +657,12 @@
     `);
     view().querySelectorAll('[data-seal]').forEach((b) => b.onclick = () => { p.seal = b.dataset.seal || null; save(); renderPoint(id); toast(p.seal ? SEALS[p.seal].jp + ' ' + SEALS[p.seal].name : 'Отметка снята'); });
     view().querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { const t = p.tasks[+b.dataset.t]; t.done = !t.done; save(); renderPoint(id); });
+    if ($('#pt-reroll')) $('#pt-reroll').onclick = () => {
+      const old = p.tasks[2];
+      p.tasks[2] = rollBonus([old.bonus].filter(Boolean));
+      p.rerolls = (p.rerolls || 0) + 1; save(); renderPoint(id);
+      toast('Новый бонус. Сменить можно один раз на точку');
+    };
     $('#pt-edit').onclick = () => openPointForm(null, p);
     if ($('#pt-reopen')) {
       let armed = false;

@@ -273,3 +273,5 @@ input, select, textarea, .input, #q { font-size: 16px !important; }
 .geo-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 9px 12px; background: var(--ink); color: var(--paper); border: 1px solid var(--line-2); cursor: pointer; width: 100%; }
 .geo-opt b { font-size: 14px; }
 .geo-opt span { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+.bonus-tag { display: inline-block; margin-right: 6px; padding: 1px 5px; background: var(--accent); color: var(--ink); font-family: var(--mono); font-size: 9px; letter-spacing: .1em; vertical-align: 2px; }
