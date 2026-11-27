@@ -17,6 +17,7 @@
   let squad = null;
   let members = [];
   let locations = [];
+  let orders = [];
   let founderExists = true;
   let loadError = '';             // почему отряд не загрузился (показываем вместо вечной загрузки)
   let pollTimer = null, pushTimer = null, lastPushed = '', lastShareAt = 0;
@@ -81,16 +82,18 @@
       A.save(true);
     }
     if (me && me.squad_id) {
-      const [sq, mem, loc] = await Promise.all([
+      const [sq, mem, loc, ord] = await Promise.all([
         sb.from('squads').select('*').eq('id', me.squad_id).maybeSingle(),
         sb.from('profiles').select('id,name,avatar,xp,granted_rank,is_founder,updated_at').eq('squad_id', me.squad_id),
-        sb.from('locations').select('*').eq('squad_id', me.squad_id)
+        sb.from('locations').select('*').eq('squad_id', me.squad_id),
+        sb.from('orders').select('*').eq('squad_id', me.squad_id).order('id', { ascending: false }).limit(60)
       ]);
+      if (!ord.error) orders = ord.data || [];
       squad = sq.data || null;
       members = (mem.data || []).sort((a, b) => (b.is_founder - a.is_founder) || (b.xp - a.xp));
       locations = loc.data || [];
     } else {
-      squad = null; members = []; locations = [];
+      squad = null; members = []; locations = []; orders = [];
       const fe = await sb.rpc('founder_exists');
       founderExists = fe.data !== false;
     }
@@ -100,6 +103,7 @@
 
   function memberRank(m) {
     if (m.is_founder) return A.ZERO;
+    if (m.granted_rank === 'k9') return A.NINE;
     const byXP = A.rankFromXP(m.xp || 0);
     const g = m.granted_rank ? A.rankById(m.granted_rank) : null;
     return g && A.rankIndex(g.id) > A.rankIndex(byXP.id) ? g : byXP;
@@ -300,13 +304,14 @@
     if (!m) return;
     const cur = memberRank(m);
     let pick = m.granted_rank || cur.id;
+    const nineHolder = members.find((x) => x.granted_rank === 'k9');
     const bg = document.createElement('div');
     bg.className = 'sheet-bg';
     const draw = () => {
       bg.innerHTML = `<form class="sheet" id="gr">
         <div class="between"><div class="eyebrow">ПРИКАЗ О ПРИСВОЕНИИ / 辞令</div><button type="button" class="iconbtn" data-x aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
         <div class="row box" style="padding:12px;gap:12px">${A.avatar(m.avatar, m.name || '?', 44)}<span class="grow"><b style="display:block;font-size:18px">${esc(m.name || 'Без имени')}</b><span class="small">сейчас: ${esc(cur.name)}</span></span></div>
-        <div style="display:flex;flex-direction:column;gap:6px">${A.RANKS.map((r) => `<button type="button" class="rank-opt ${pick === r.id ? 'on' : ''}" data-r="${r.id}"><span class="jp">${r.jp}</span><b>${r.name}</b><span class="mono"></span></button>`).join('')}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">${[A.NINE].concat(A.RANKS.slice().reverse()).map((r) => `<button type="button" class="rank-opt ${r.id === 'k9' ? 'nine' : ''} ${pick === r.id ? 'on' : ''}" data-r="${r.id}"><span class="jp">${r.jp}</span><b>${r.name}</b><span class="mono">${r.id === m.granted_rank ? 'ТЕКУЩИЙ' : r.id === 'k9' ? (nineHolder && nineHolder.id !== m.id ? 'СЕЙЧАС У ' + esc((nineHolder.name || '?').toUpperCase()) : 'ОСОБЫЙ · 1 НА МИР') : ''}</span></button>`).join('')}</div>
         <label class="field"><span>ЗА ЧТО</span><input class="input" name="why" maxlength="80" placeholder="например, закрыл линию за день"></label>
         <button class="btn primary block">ПОДПИСАТЬ ПРИКАЗ · ${esc(A.rankById(pick).name)}</button></form>`;
       bg.querySelector('[data-x]').onclick = () => bg.remove();
@@ -315,7 +320,7 @@
         e.preventDefault();
         const { error } = await sb.rpc('grant_rank', { target: m.id, new_rank: pick, why: e.target.why.value.trim() || null });
         if (error) return A.toast(errText(error));
-        bg.remove(); A.toast('認 Приказ подписан: ' + (m.name || '') + ' → ' + A.rankById(pick).name); await refresh();
+        bg.remove(); A.toast('認 Приказ подписан и отправлен: ' + (m.name || '') + ' → ' + A.rankById(pick).name); await refresh();
       };
     };
     draw();
@@ -345,8 +350,18 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && session) { refresh(); shareLocation(true); } });
   }
 
+  // приказы в общем виде для вкладки «Приказы»
+  function ordersList() {
+    if (!session) return [];
+    const name = (id) => { const m = members.find((x) => x.id === id); return m ? (m.name || 'Без имени') : '—'; };
+    return orders.map((o) => ({
+      key: 's:' + o.id, n: String(o.id).padStart(4, '0'), toName: name(o.to_id), fromName: name(o.from_id),
+      rank: o.rank, why: o.reason, at: o.created_at, toMe: o.to_id === session.user.id
+    })).filter((o) => o.toMe || (me && me.is_founder));
+  }
+
   window.AQSync = {
-    enabled, init, online,
+    enabled, init, online, orders: ordersList,
     onSave: () => pushProfile(false),
     onPosition: () => shareLocation(false),
     settingsHtml, bindSettings, squadHtml, bindSquad, handleJoinLink, redraw: drawSquadOnMap

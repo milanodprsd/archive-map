@@ -15,7 +15,7 @@ create table if not exists public.profiles (
   name text not null default '' check (char_length(name) <= 24),
   avatar text check (avatar is null or char_length(avatar) <= 120000),
   xp integer not null default 0 check (xp >= 0),
-  granted_rank text check (granted_rank in ('r3','r2','r1','fc','as','sc')),
+  granted_rank text check (granted_rank in ('r3','r2','r1','fc','as','sc','k9')),
   is_founder boolean not null default false,
   squad_id uuid references public.squads(id) on delete set null,
   updated_at timestamptz not null default now()
@@ -26,7 +26,7 @@ create table if not exists public.orders (
   squad_id uuid not null references public.squads(id) on delete cascade,
   from_id uuid not null references auth.users(id) on delete cascade,
   to_id uuid not null references auth.users(id) on delete cascade,
-  rank text not null check (rank in ('r3','r2','r1','fc','as','sc')),
+  rank text not null check (rank in ('r3','r2','r1','fc','as','sc','k9')),
   reason text check (char_length(reason) <= 80),
   created_at timestamptz not null default now()
 );
@@ -42,6 +42,14 @@ create table if not exists public.locations (
 
 -- только один основатель на весь мир
 create unique index if not exists one_founder on public.profiles ((true)) where is_founder;
+
+-- особый ранг 玖 (9-й отдел): для уже созданных таблиц обновляем проверки рангов
+alter table public.profiles drop constraint if exists profiles_granted_rank_check;
+alter table public.profiles add constraint profiles_granted_rank_check check (granted_rank in ('r3','r2','r1','fc','as','sc','k9'));
+alter table public.orders drop constraint if exists orders_rank_check;
+alter table public.orders add constraint orders_rank_check check (rank in ('r3','r2','r1','fc','as','sc','k9'));
+-- 玖 только у одного человека на весь мир
+create unique index if not exists one_ninth on public.profiles ((true)) where granted_rank = 'k9';
 
 -- ---------- профиль создаётся при регистрации ----------
 create or replace function public.handle_new_user() returns trigger
@@ -154,15 +162,17 @@ begin
   update profiles set squad_id = null, updated_at = now() where id = auth.uid() and not is_founder;
 end $$;
 
--- Приказ: только основатель, только своему отряду, максимум Special Class
+-- Приказ: только основатель, только своему отряду, максимум Special Class или особый 玖
 create or replace function public.grant_rank(target uuid, new_rank text, why text default null) returns void
 language plpgsql security definer set search_path = public as $$
 declare sid uuid;
 begin
   select squad_id into sid from profiles where id = auth.uid() and is_founder;
   if sid is null then raise exception 'only founder can grant ranks'; end if;
-  if new_rank not in ('r3','r2','r1','fc','as','sc') then raise exception 'bad rank'; end if;
+  if new_rank not in ('r3','r2','r1','fc','as','sc','k9') then raise exception 'bad rank'; end if;
   if not exists (select 1 from profiles where id = target and squad_id = sid) then raise exception 'not in your squad'; end if;
+  -- 玖 переходит к новому человеку: у прежнего снимается
+  if new_rank = 'k9' then update profiles set granted_rank = null, updated_at = now() where granted_rank = 'k9' and id <> target; end if;
   update profiles set granted_rank = new_rank, updated_at = now() where id = target;
   insert into orders (squad_id, from_id, to_id, rank, reason) values (sid, auth.uid(), target, new_rank, left(why, 80));
 end $$;

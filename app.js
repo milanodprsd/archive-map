@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '12';
+  const APP_VERSION = '13';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -18,6 +18,8 @@
     { id: 'sc', jp: '特等', name: 'SPECIAL CLASS', xp: 12000, how: 'Точки в разных странах' }
   ];
   const ZERO = { id: 'zero', jp: '零', name: 'ZERO-CLASS', xp: Infinity, how: 'Только основатель. Один на весь мир.' };
+  // особый ранг вне лестницы: только приказом ZERO-CLASS, один на весь мир
+  const NINE = { id: 'k9', jp: '玖', name: '9TH DIVISION', xp: Infinity, how: 'Командир 9-го отдела. Только приказом 零. Один на весь мир.' };
 
   const BASE_CATS = [
     { id: 'arc', jp: '古着', name: 'АРХИВ / ВИНТАЖ', short: 'АРХИВ' },
@@ -151,10 +153,11 @@
     RANKS.forEach((x) => { if (xp >= x.xp) r = x; });
     return r;
   }
-  function rankById(id) { return id === 'zero' ? ZERO : RANKS.find((r) => r.id === id) || RANKS[0]; }
+  function rankById(id) { return id === 'zero' ? ZERO : id === 'k9' ? NINE : RANKS.find((r) => r.id === id) || RANKS[0]; }
   function rankIndex(id) { return RANKS.findIndex((r) => r.id === id); }
   function myRank() {
     if (S.profile.founder) return ZERO;
+    if (S.profile.grantedRank === 'k9') return NINE;
     const byXP = rankFromXP(totalXP());
     const g = S.profile.grantedRank ? rankById(S.profile.grantedRank) : null;
     if (g && rankIndex(g.id) > rankIndex(byXP.id)) return g;
@@ -162,7 +165,7 @@
   }
   function nextRank() {
     const r = myRank();
-    if (r.id === 'zero') return null;
+    if (r.id === 'zero' || r.id === 'k9') return null;
     const i = rankIndex(r.id);
     return RANKS[i + 1] || null;
   }
@@ -306,12 +309,13 @@
     const h = location.hash.replace(/^#\/?/, '') || 'map';
     const [name, arg] = h.split('/');
     if (name === 'join') { if (window.AQSync) window.AQSync.handleJoinLink(arg); return; }
-    const tab = { map: 'map', quests: 'quests', point: 'quests', categories: 'categories', profile: 'profile', grant: 'profile', ranks: 'profile', order: 'profile' }[name] || 'map';
+    const tab = { map: 'map', quests: 'quests', point: 'quests', categories: 'categories', profile: 'profile', grant: 'profile', ranks: 'profile', order: 'profile', inbox: 'inbox' }[name] || 'map';
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
     if (!S.profile.name && name !== 'order') return renderOnboarding();
-    const r = { map: renderMap, quests: renderQuests, point: renderPoint, categories: renderCategories, profile: renderProfile, grant: renderGrant, ranks: renderRanks, order: renderOrder }[name] || renderMap;
+    const r = { map: renderMap, quests: renderQuests, point: renderPoint, categories: renderCategories, profile: renderProfile, grant: renderGrant, ranks: renderRanks, order: renderOrder, inbox: renderInbox }[name] || renderMap;
     r(arg ? decodeURIComponent(arg) : undefined);
     if (name === 'map') setTimeout(() => map.invalidateSize(), 0);
+    updateInboxBadge();
   }
   window.addEventListener('hashchange', route);
 
@@ -722,10 +726,10 @@
           <div class="kanji">${esc(r.jp)}</div>
           <div class="grow"><div class="mono" style="font-size:9px;letter-spacing:.14em;color:#555550">РАНГ / 階級</div>
             <div style="font-size:24px;font-weight:900;letter-spacing:-.02em;line-height:1">${esc(r.name)}</div>
-            <div class="mono" style="font-size:10px;margin-top:3px">${r.id === 'zero' ? 'выше Special Class · уникальный' : nx ? 'до ' + esc(nx.name) + ': ' + fmtNum(Math.max(0, nx.xp - xp)) + ' XP' : 'максимум по XP'}</div></div>
+            <div class="mono" style="font-size:10px;margin-top:3px">${r.id === 'zero' ? 'выше Special Class · уникальный' : r.id === 'k9' ? '第九班 · командир · единственная' : nx ? 'до ' + esc(nx.name) + ': ' + fmtNum(Math.max(0, nx.xp - xp)) + ' XP' : 'максимум по XP'}</div></div>
         </div>
-        ${r.id !== 'zero' ? '<div class="progress" style="--n:1;color:#0A0A0A"><i style="background:linear-gradient(90deg,var(--accent) ' + pct + '%,transparent ' + pct + '%)"></i></div>' : ''}
-        ${S.profile.founder ? '<div class="seal" aria-hidden="true">神</div>' : ''}
+        ${r.id !== 'zero' && r.id !== 'k9' ? '<div class="progress" style="--n:1;color:#0A0A0A"><i style="background:linear-gradient(90deg,var(--accent) ' + pct + '%,transparent ' + pct + '%)"></i></div>' : ''}
+        ${S.profile.founder ? '<div class="seal" aria-hidden="true">神</div>' : r.id === 'k9' ? '<div class="seal" aria-hidden="true">玖</div>' : ''}
       </div>
       <div class="stats" style="--n:4">
         <div><b>${cleared.length}</b><span>ТОЧЕК</span></div>
@@ -801,7 +805,7 @@
           <span class="grow"><span style="display:block;font-size:18px;font-weight:800">${esc(f.name)}</span><span class="small">сейчас: ${esc(rankById(f.rank).name)}</span></span></div>
         <div class="eyebrow">НОВЫЙ РАНГ</div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${RANKS.map((r) => `<button class="rank-opt ${pick === r.id ? 'on' : ''}" data-r="${r.id}"><span class="jp">${r.jp}</span><b>${r.name}</b><span class="mono">${r.id === f.rank ? 'ТЕКУЩИЙ' : ''}</span></button>`).join('')}
+          ${[NINE].concat(RANKS.slice().reverse()).map((r) => `<button class="rank-opt ${r.id === 'k9' ? 'nine' : ''} ${pick === r.id ? 'on' : ''}" data-r="${r.id}"><span class="jp">${r.jp}</span><b>${r.name}</b><span class="mono">${r.id === f.rank ? 'ТЕКУЩИЙ' : r.id === 'k9' ? 'ОСОБЫЙ' : ''}</span></button>`).join('')}
           <div class="rank-opt locked"><span class="jp">零</span><b>ZERO-CLASS</b><span class="mono">ЗАНЯТ · ТОЛЬКО ТЫ</span></div>
         </div>
         <label class="field"><span>ЗА ЧТО (ПОПАДЁТ В ДОСЬЕ)</span><input class="input" id="g-why" maxlength="80" placeholder="например, закрыл линию Шимокита за день"></label>
@@ -861,6 +865,122 @@
     };
   }
 
+  // ---------- приказы (входящие) ----------
+  const SEEN_KEY = 'archive-quest:seen-orders';
+  const ORDER_TEXT = {
+    r3: 'Зачислить следователя {name} в штат бюро в звании RANK 3. Выдать удостоверение и кейс под квинке. Первые выходы в поле только в паре со старшим по званию. Ночью переулки не проверять.',
+    r2: 'За выдержку в полевых операциях следователь {name} повышается до RANK 2. Разрешено самостоятельное патрулирование района. Каждый закрытый квест сдавать в архив с печатью.',
+    r1: 'Следователь {name} переводится в RANK 1. Отныне вправе вести собственную квест-линию и брать в напарники младших. За напарника отвечает головой.',
+    fc: 'Присвоить следователю {name} звание FIRST CLASS. Открыть допуск к закрытым архивам бюро. Квинке класса B закрепляется за следователем лично.',
+    as: 'Следователь {name} возводится в ранг ASSOCIATE SPECIAL. Вправе командовать отрядом на выезде. Отчёты подаются напрямую ZERO-CLASS, минуя канцелярию.',
+    sc: 'Присвоить следователю {name} высший полевой ранг SPECIAL CLASS. Квинке класса S. Действовать по собственному усмотрению, отчитываться только перед 零.',
+    k9: 'Настоящим учреждается 9-й отдел (第九班) в прямом подчинении ZERO-CLASS. Командиром отдела назначается {name}. Полномочия особые, доступ везде, куда идёт 零. Приказ бессрочный и отмене не подлежит. Кофе в любом киссатэн за счёт основателя.'
+  };
+  const ORDER_CLOSE = 'Приказ вступает в силу с момента подписания. Помни: следователь и тот, кого он ищет, ходят по одним и тем же улицам.';
+  function seenOrders() { try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); } catch (e) { return new Set(); } }
+  function markSeen(key) { const s = seenOrders(); s.add(key); try { localStorage.setItem(SEEN_KEY, JSON.stringify([...s].slice(-300))); } catch (e) { /* пусто */ } }
+  function allOrders() {
+    const list = [];
+    const online = window.AQSync && window.AQSync.online && window.AQSync.online();
+    if (online) list.push(...window.AQSync.orders());
+    else {
+      S.profile.orders.forEach((o) => list.push({ key: 'l:' + o.n + ':' + o.at, n: o.n, toName: o.to, fromName: o.from, rank: o.rank, why: o.why, at: o.at, toMe: true }));
+      S.friends.forEach((f) => (f.history || []).forEach((o) => list.push({ key: 'f:' + o.n + ':' + o.at, n: o.n, toName: o.to, fromName: o.from, rank: o.rank, why: o.why, at: o.at, toMe: false })));
+    }
+    return list.sort((a, b) => (a.at < b.at ? 1 : -1));
+  }
+  function unreadOrders() { const seen = seenOrders(); return allOrders().filter((o) => o.toMe && !seen.has(o.key)); }
+  let notifiedKeys = null;
+  function updateInboxBadge() {
+    const a = document.querySelector('#tabbar a[data-tab=inbox]');
+    if (!a) return;
+    const unread = unreadOrders();
+    let b = a.querySelector('.badge');
+    if (unread.length) { if (!b) { b = document.createElement('span'); b.className = 'badge'; a.appendChild(b); } b.textContent = unread.length > 9 ? '9+' : unread.length; }
+    else if (b) b.remove();
+    // всплывашка о новом приказе (один раз на приказ)
+    const keys = unread.map((o) => o.key);
+    if (notifiedKeys) {
+      const fresh = unread.filter((o) => !notifiedKeys.has(o.key));
+      if (fresh.length) { toast('辞令 Новый приказ: ' + rankById(fresh[0].rank).name); if (navigator.vibrate) navigator.vibrate([60, 40, 60]); }
+    }
+    notifiedKeys = new Set([...(notifiedKeys || []), ...keys]);
+  }
+
+  function signatureSVG(name) {
+    let seed = Math.abs(hash(name || 'ZERO')) || 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    // крупная первая буква, затем затухающие волны и росчерк
+    let x = 8, d = 'M8 40 C4 10 22 2 20 30 C18 44 10 40 16 30';
+    x = 20;
+    const loops = 4 + Math.floor(rnd() * 3);
+    for (let i = 0; i < loops; i++) {
+      const w = 9 + rnd() * 9, up = (18 - i * 2) * (0.6 + rnd() * 0.6);
+      const back = rnd() < 0.35 ? w * 0.5 : 0;
+      d += ` C${(x + w * 0.2).toFixed(1)} ${(34 - up).toFixed(1)} ${(x + w * 0.8 - back).toFixed(1)} ${(32 - up).toFixed(1)} ${(x + w).toFixed(1)} ${(36 + rnd() * 4).toFixed(1)}`;
+      x += w;
+    }
+    d += ` C${(x + 14).toFixed(1)} 30 ${(x - 60).toFixed(1)} 52 ${(x + 36).toFixed(1)} 40`;
+    return `<svg class="sig" viewBox="0 0 ${Math.ceil(x + 40)} 56" preserveAspectRatio="xMinYMid meet" aria-hidden="true"><path d="${d}"/><path d="M${14} 49 Q${(x / 2).toFixed(1)} 43 ${(x + 26).toFixed(1)} 47"/></svg>`;
+  }
+  function sealSVG(center, ring) {
+    return `<svg class="doc-seal" viewBox="0 0 120 120" aria-hidden="true">
+      <defs><path id="sr" d="M60 60 m-41 0 a41 41 0 1 1 82 0 a41 41 0 1 1 -82 0"/>
+      <filter id="ink"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="4"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.2 1.6"/><feComposite in="SourceGraphic" operator="in"/></filter></defs>
+      <g filter="url(#ink)" fill="none" stroke="currentColor">
+        <circle cx="60" cy="60" r="55" stroke-width="4"/><circle cx="60" cy="60" r="32" stroke-width="1.6"/>
+        <text font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="600" letter-spacing="2.2" fill="currentColor" stroke="none"><textPath href="#sr">${ring}</textPath></text>
+        <text x="60" y="73" text-anchor="middle" font-family="Noto Sans JP, sans-serif" font-weight="900" font-size="36" fill="currentColor" stroke="none">${center}</text>
+      </g></svg>`;
+  }
+  function orderDocHtml(o) {
+    const r = rankById(o.rank);
+    const text = (ORDER_TEXT[o.rank] || ORDER_TEXT.r3).replace('{name}', '<b>' + esc(o.toName || 'следователь') + '</b>');
+    const nine = o.rank === 'k9';
+    return `<article class="doc ${nine ? 'doc-nine' : ''}">
+      <div class="doc-head"><span class="jp">喰種対策局 · 本局</span><span class="mono">ARCHIVE QUEST / CCG</span></div>
+      <div class="doc-title"><span class="jp">辞令</span><div><b>ПРИКАЗ</b><span class="mono">№${esc(o.n)} · ${esc(fmtDate(o.at))}</span></div></div>
+      <div class="doc-line mono"><span>КОМУ</span><b>${esc((o.toName || '').toUpperCase())}</b></div>
+      <div class="doc-rank"><div class="kanji">${esc(r.jp)}</div><div><span class="mono">${nine ? 'ОСОБОЕ НАЗНАЧЕНИЕ' : 'ПРИСВАИВАЕТСЯ РАНГ'}</span><b>${esc(r.name)}</b></div></div>
+      <p class="doc-text">${text}</p>
+      ${o.why ? '<p class="doc-why mono"><span>ОСНОВАНИЕ</span>' + esc(o.why) + '</p>' : ''}
+      <p class="doc-close">${ORDER_CLOSE}</p>
+      <div class="doc-foot">
+        <div class="doc-sign">${signatureSVG(o.fromName)}<span class="mono">${esc((o.fromName || '').toUpperCase())} · ZERO-CLASS / 零</span></div>
+        ${sealSVG(nine ? '玖' : '零', nine ? '第九班 ✦ 9TH DIVISION ✦ 承認 ✦ ZERO ✦ ' : 'ZERO-CLASS ✦ 喰種対策局 ✦ 承認 ✦ ')}
+      </div>
+      <div class="doc-code mono"><span>CCG-${esc(o.n)}-${esc(String(o.rank).toUpperCase())}</span><i class="bars" style="--seed:${Math.abs(hash(o.key)) % 7 + 2}px"></i></div>
+    </article>`;
+  }
+  function renderInbox(key) {
+    const list = allOrders();
+    if (key) {
+      const o = list.find((x) => x.key === key);
+      if (!o) { location.hash = '#/inbox'; return; }
+      if (o.toMe) markSeen(o.key);
+      screen(`<div class="topbar">${backBtn('#/inbox', 'К приказам')}<div class="eyebrow">ПРИКАЗ №${esc(o.n)} / 辞令</div><span style="width:44px"></span></div>
+        ${orderDocHtml(o)}
+        <a class="btn ghost block" href="#/inbox">ВСЕ ПРИКАЗЫ</a>`);
+      updateInboxBadge();
+      return;
+    }
+    const seen = seenOrders();
+    const founder = S.profile.founder;
+    screen(`<div class="topbar"><span style="width:44px"></span><div class="eyebrow">ПРИКАЗЫ / 辞令</div><span style="width:44px"></span></div>
+      <h1 class="h1">ПРИКАЗЫ</h1>
+      ${founder ? '<button class="btn primary block" id="ib-grant">ВЫДАТЬ ПРИКАЗ</button>' : ''}
+      <div>${list.length ? list.map((o) => {
+        const r = rankById(o.rank), unread = o.toMe && !seen.has(o.key);
+        return `<a class="list-item order-item ${unread ? 'unread' : ''}" href="#/inbox/${encodeURIComponent(o.key)}">
+          <span class="ostamp ${o.rank === 'k9' ? 'nine' : ''}">${esc(r.jp.slice(0, 2))}</span>
+          <span class="grow"><span style="display:block;font-size:14px;font-weight:800">${o.toMe ? 'ТЕБЕ' : esc((o.toName || '').toUpperCase())} → ${esc(r.name)}</span>
+          <span class="small">№${esc(o.n)} · ${esc(fmtDate(o.at))}${o.why ? ' · ' + esc(o.why) : ''}</span></span>
+          ${unread ? '<span class="dot" aria-label="Новый"></span>' : ''}</a>`;
+      }).join('') : '<div class="empty">Приказов пока нет. Когда ZERO-CLASS подпишет приказ о твоём ранге, он придёт сюда.</div>'}</div>`);
+    if ($('#ib-grant')) $('#ib-grant').onclick = () => { profileTab = 'squad'; location.hash = '#/profile'; };
+    updateInboxBadge();
+  }
+
   // ---------- лестница рангов ----------
   function renderRanks() {
     const r = myRank();
@@ -869,11 +989,12 @@
       <h1 class="h1">ОТ RANK 3 ДО 零</h1>
       <div class="ladder">
         <div class="zero"><span class="jp">零</span><b>ZERO-CLASS</b><span class="mono" style="font-size:10px">ОСНОВАТЕЛЬ</span></div>
+        <div class="nine ${r.id === 'k9' ? 'cur' : ''}"><span class="jp">玖</span><span class="grow"><b style="display:block">9TH DIVISION</b><span class="mono" style="font-size:10px;opacity:.75">${NINE.how}</span></span><span class="mono" style="font-size:11px;font-weight:600">ПРИКАЗ</span></div>
         ${RANKS.slice().reverse().map((x) => `<div class="${x.id === r.id ? 'cur' : ''}"><span class="jp">${x.jp}</span><span class="grow"><b style="display:block">${x.name}</b><span class="mono" style="font-size:10px;opacity:.75">${x.how}</span></span><span class="mono" style="font-size:11px;font-weight:600">${fmtNum(x.xp)} XP</span></div>`).join('')}
       </div>
       <div class="mono" style="font-size:11px;line-height:1.6;color:var(--muted)">
         <b style="color:var(--paper)">САМ</b> — XP за задачи точек, +${LINE_BONUS} XP за каждую закрытую линию. Без гео-печати — половина XP.<br>
-        <b style="color:var(--accent)">ПРИКАЗ</b> — ZERO-CLASS выдаёт любой ранг до Special Class. Итоговый ранг — старший из двух.
+        <b style="color:var(--accent)">ПРИКАЗ</b> — ZERO-CLASS выдаёт любой ранг до Special Class и особый ранг 玖 9-го отдела. Итоговый ранг — старший из двух. Все приказы приходят во вкладку «Приказы».
       </div>
     `);
   }
@@ -899,7 +1020,7 @@
   if (window.AQSync) {
     window.AQSync.init({
       S: () => S, save, toast, esc, avatar, fmtNum, fmtDist, distance,
-      RANKS, ZERO, rankById, rankIndex, rankFromXP, totalXP,
+      RANKS, ZERO, NINE, rankById, rankIndex, rankFromXP, totalXP,
       map: () => map,
       myPos: () => (myPos ? { lat: myPos.lat, lng: myPos.lng, acc: myAcc } : null),
       requestPosition: () => { startWatch(); if (navigator.geolocation) navigator.geolocation.getCurrentPosition(onPos, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }); },
@@ -908,8 +1029,10 @@
       onSyncChange: () => {
         const h = location.hash || '';
         const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+        updateInboxBadge();
         if (typing || document.querySelector('.sheet-bg')) return;
-        if (/^#\/profile/.test(h)) renderProfile();
+        if (/^#\/inbox\/?$/.test(h)) renderInbox();
+        else if (/^#\/profile/.test(h)) renderProfile();
         else if (/^#\/?(map)?$/.test(h)) { const b = $('.rankbadge'); const r = myRank(); if (b && !b.textContent.includes(r.name)) renderMap(); }
       }
     });

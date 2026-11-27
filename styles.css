@@ -35,11 +35,11 @@ input, select, textarea { font: inherit; }
 #tabbar {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
   height: calc(var(--tab-h) + var(--safe-b)); padding-bottom: var(--safe-b);
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
   background: var(--ink); border-top: 1px solid var(--line);
   font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
 }
-#tabbar a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--muted); }
+#tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--muted); }
 #tabbar a.on { color: var(--accent); }
 #tabbar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 
@@ -225,3 +225,45 @@ input, select, textarea, .input, #q { font-size: 16px !important; }
 .mate-lbl b { color: var(--accent); font-family: var(--jp); }
 .far .mate-lbl { display: none; }
 .list-item img.ava-img { border-radius: 0; }
+
+/* ---------- приказы / 辞令 ---------- */
+#tabbar .badge { position: absolute; top: 8px; left: 50%; margin-left: 6px; min-width: 16px; height: 16px; padding: 0 4px; background: var(--accent); color: var(--ink); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; letter-spacing: 0; }
+.order-item .ostamp { width: 42px; height: 42px; flex-shrink: 0; border: 2px solid var(--accent); border-radius: 50%; color: var(--accent); display: flex; align-items: center; justify-content: center; font-family: var(--jp); font-weight: 900; font-size: 14px; transform: rotate(-10deg); }
+.order-item .ostamp.nine { background: var(--accent); color: var(--ink); }
+.order-item.unread { border-left: 3px solid var(--accent); }
+.order-item .dot { width: 10px; height: 10px; background: var(--accent); flex-shrink: 0; }
+.ladder > div.nine { border-color: var(--accent); color: var(--accent); }
+.ladder > div.nine.cur { background: var(--accent); color: var(--ink); }
+.rank-opt.nine { border-color: var(--accent); color: var(--accent); }
+.rank-opt.nine.on { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+
+.doc { position: relative; background: var(--paper); color: var(--ink); padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 12px;
+  background-image: repeating-linear-gradient(0deg, rgba(10,10,10,.035) 0 1px, transparent 1px 28px); box-shadow: 0 0 0 1px #000, 6px 6px 0 0 #1A1A1A; }
+.doc::before { content: ""; position: absolute; inset: 6px; border: 1px solid rgba(10,10,10,.35); pointer-events: none; }
+.doc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; border-bottom: 2px solid var(--ink); padding-bottom: 8px; }
+.doc-head .jp { font-family: var(--jp); font-weight: 900; font-size: 13px; letter-spacing: .1em; }
+.doc-head .mono { font-size: 9px; letter-spacing: .12em; }
+.doc-title { display: flex; align-items: center; gap: 12px; }
+.doc-title .jp { font-family: var(--jp); font-weight: 900; font-size: 40px; line-height: 1; writing-mode: vertical-rl; background: var(--ink); color: var(--paper); padding: 8px 4px; }
+.doc-title b { display: block; font-size: 30px; font-weight: 900; letter-spacing: -.02em; line-height: 1; }
+.doc-title .mono { font-size: 11px; letter-spacing: .1em; }
+.doc-line { display: flex; gap: 10px; align-items: baseline; font-size: 11px; border-bottom: 1px dashed rgba(10,10,10,.5); padding-bottom: 6px; }
+.doc-line span { letter-spacing: .14em; color: #555550; }
+.doc-line b { font-size: 15px; }
+.doc-rank { display: flex; align-items: center; gap: 12px; }
+.doc-rank .kanji { width: 56px; height: 56px; background: var(--ink); color: var(--accent); display: flex; align-items: center; justify-content: center; font-family: var(--jp); font-weight: 900; font-size: 22px; flex-shrink: 0; }
+.doc-rank .mono { display: block; font-size: 9px; letter-spacing: .14em; color: #555550; }
+.doc-rank b { font-size: 22px; font-weight: 900; letter-spacing: -.01em; }
+.doc-text { margin: 0; font-size: 14px; line-height: 1.55; }
+.doc-why { margin: 0; font-size: 12px; line-height: 1.5; border-left: 3px solid var(--accent); padding-left: 8px; }
+.doc-why span { display: block; font-size: 9px; letter-spacing: .14em; color: #555550; }
+.doc-close { margin: 0; font-size: 11px; line-height: 1.5; font-style: italic; color: #3A3A36; }
+.doc-foot { position: relative; display: flex; align-items: flex-end; justify-content: space-between; min-height: 96px; margin-top: 4px; }
+.doc-sign { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--ink); padding-top: 4px; width: 60%; position: relative; }
+.doc-sign .sig { position: absolute; left: -4px; bottom: 16px; height: 58px; width: 120%; fill: none; stroke: #16161A; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.doc-sign .mono { font-size: 9px; letter-spacing: .1em; }
+.doc-seal { width: 104px; height: 104px; color: var(--accent); transform: rotate(-14deg); mix-blend-mode: multiply; opacity: .92; margin-right: -4px; }
+.doc-code { display: flex; align-items: center; gap: 10px; font-size: 9px; letter-spacing: .14em; color: #555550; }
+.doc-code .bars { flex: 1; max-width: 140px; height: 14px; background: repeating-linear-gradient(90deg, #0A0A0A 0 2px, transparent 2px 4px, #0A0A0A 4px 5px, transparent 5px var(--seed, 7px)); }
+.doc-nine { box-shadow: 0 0 0 1px #000, 6px 6px 0 0 var(--accent); }
+.doc-nine .doc-title .jp { background: var(--accent); color: var(--ink); }
