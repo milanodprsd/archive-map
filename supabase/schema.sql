@@ -197,13 +197,13 @@ begin
   perform _leave_current(auth.uid());
 end $$;
 
--- Приказ: командир своему отряду до Special Class; особый 玖 — только основатель (ZERO-CLASS)
+-- Приказ: ранги выдаёт только основатель (ZERO-CLASS) своему отряду; в остальных отрядах ранг растёт только от XP
 create or replace function public.grant_rank(target uuid, new_rank text, why text default null) returns void
 language plpgsql security definer set search_path = public as $$
 declare sid uuid; founder boolean;
 begin
   select s.id, p.is_founder into sid, founder from squads s join profiles p on p.id = auth.uid() and p.squad_id = s.id where s.owner = auth.uid();
-  if sid is null then raise exception 'only commander can grant ranks'; end if;
+  if sid is null or not founder then raise exception 'only founder can grant ranks'; end if;
   if target = auth.uid() then raise exception 'not yourself'; end if;
   if new_rank not in ('r3','r2','r1','fc','as','sc','k9') then raise exception 'bad rank'; end if;
   if new_rank = 'k9' and not founder then raise exception 'only founder grants k9'; end if;

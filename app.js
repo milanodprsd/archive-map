@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '17';
+  const APP_VERSION = '18';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -1075,7 +1075,7 @@
       return;
     }
     const seen = seenOrders();
-    const founder = S.profile.founder || !!(window.AQSync && window.AQSync.isCommander && window.AQSync.isCommander());
+    const founder = S.profile.founder;
     screen(`<div class="topbar"><span style="width:44px"></span><div class="eyebrow">ПРИКАЗЫ / 辞令</div><span style="width:44px"></span></div>
       <h1 class="h1">ПРИКАЗЫ</h1>
       ${founder ? '<button class="btn primary block" id="ib-grant">ВЫДАТЬ ПРИКАЗ</button>' : ''}
@@ -1086,7 +1086,7 @@
           <span class="grow"><span style="display:block;font-size:14px;font-weight:800">${o.toMe ? 'ТЕБЕ' : esc((o.toName || '').toUpperCase())} → ${esc(r.name)}</span>
           <span class="small">№${esc(o.n)} · ${esc(fmtDate(o.at))}${o.why ? ' · ' + esc(o.why) : ''}</span></span>
           ${unread ? '<span class="dot" aria-label="Новый"></span>' : ''}</a>`;
-      }).join('') : '<div class="empty">Приказов пока нет. Когда командир отряда или ZERO-CLASS подпишет приказ о твоём ранге, он придёт сюда.</div>'}</div>`);
+      }).join('') : '<div class="empty">Приказов пока нет. Когда ZERO-CLASS подпишет приказ о твоём ранге, он придёт сюда.</div>'}</div>`);
     if ($('#ib-grant')) $('#ib-grant').onclick = () => { profileTab = 'squad'; location.hash = '#/profile'; };
     updateInboxBadge();
   }

@@ -38,7 +38,7 @@
     if (/founder already exists/.test(m)) return 'Основатель уже есть';
     if (/bad invite code/.test(m)) return 'Неверный код отряда';
     if (/only founder grants k9/.test(m)) return 'Ранг 玖 выдаёт только ZERO-CLASS';
-    if (/only founder/.test(m)) return 'Только ZERO-CLASS';
+    if (/only founder/.test(m)) return 'Ранги выдаёт только ZERO-CLASS';
     if (/only commander/.test(m)) return 'Только командир отряда';
     if (/founder has squad/.test(m)) return 'У основателя уже есть свой отряд';
     if (/not in your squad/.test(m)) return 'Этот человек не в твоём отряде';
@@ -230,7 +230,7 @@
     if (!me.squad_id) {
       return `${!founderExists ? `<div class="card"><div class="h2">零 СТАТЬ ОСНОВАТЕЛЕМ</div><div class="mono" style="font-size:11px;line-height:1.5">Основатель один на весь мир: кто нажмёт первым, тот получит ZERO-CLASS и создаст отряд.</div><button class="btn primary block" id="sq-claim">Я ОСНОВАТЕЛЬ</button></div>` : ''}
         <div class="eyebrow">СОЗДАТЬ СВОЙ ОТРЯД</div>
-        <div class="small" style="line-height:1.5">Ты станешь командиром 班長: зовёшь друзей по ссылке, видишь их на карте и выдаёшь им ранги до Special Class.</div>
+        <div class="small" style="line-height:1.5">Ты станешь командиром 班長: зовёшь друзей по ссылке и видишь их на карте. Ранги в отряде у всех растут сами, за XP.</div>
         <form class="row" id="sq-create"><input class="input grow" name="n" maxlength="24" placeholder="Название отряда" aria-label="Название отряда"><button class="btn sm ghost" style="height:46px">СОЗДАТЬ</button></form>
         <div class="eyebrow">ВСТУПИТЬ В ОТРЯД</div>
         <form class="row" id="sq-join"><input class="input grow" name="c" maxlength="12" autocapitalize="characters" placeholder="Код отряда" aria-label="Код отряда" value="${esc(pendingJoin || '')}"><button class="btn sm ghost" style="height:46px">ВСТУПИТЬ</button></form>`;
@@ -250,7 +250,8 @@
         <span class="grow"><span style="display:block;font-size:14px;font-weight:700">${esc(m.name || 'Без имени')}${m.id === session.user.id ? ' · ТЫ' : ''}</span>
         <span class="small">${squad && squad.owner === m.id && !m.is_founder ? '<b style="color:var(--accent)">班長 КОМАНДИР</b> · ' : ''}${esc(r.name)} · ${esc(r.jp)} · ${A.fmtNum(m.xp || 0)} XP</span>
         <span class="small" style="display:block">${fresh && m.id !== session.user.id ? '<a href="#/map" data-fly="' + m.id + '" style="color:var(--accent)">◎ ' + esc(where) + '</a>' : esc(where)}</span></span>
-        ${isOwner && !m.is_founder && m.id !== session.user.id ? '<button class="btn sm" style="border:1px solid var(--accent);color:var(--accent);background:none" data-grant="' + m.id + '">ВЫДАТЬ</button>' : ''}
+        ${isFounder && !m.is_founder ? '<button class="btn sm" style="border:1px solid var(--accent);color:var(--accent);background:none" data-grant="' + m.id + '">ВЫДАТЬ</button>'
+          : isOwner && m.id !== session.user.id && !m.is_founder ? '<button class="btn sm ghost" data-kick="' + m.id + '">ИСКЛЮЧИТЬ</button>' : ''}
       </div>`;
     }).join('');
     const invite = location.origin + location.pathname + '#/join/' + (squad ? squad.invite_code : '');
@@ -310,6 +311,12 @@
       setSharing(false); await sb.rpc('leave_squad'); A.toast('Ты вышел из отряда'); await refresh();
     }; }
     document.querySelectorAll('[data-grant]').forEach((b) => b.onclick = () => openGrant(b.dataset.grant));
+    document.querySelectorAll('[data-kick]').forEach((b) => { let armed = false; b.onclick = async () => {
+      if (!armed) { armed = true; b.textContent = 'ТОЧНО?'; return; }
+      const { error } = await sb.rpc('kick_member', { target: b.dataset.kick });
+      if (error) return A.toast(errText(error));
+      A.toast('Исключён из отряда'); await refresh();
+    }; });
     document.querySelectorAll('[data-fly]').forEach((a) => a.onclick = () => {
       const l = locations.find((x) => x.user_id === a.dataset.fly);
       if (l) setTimeout(() => A.map().setView([l.lat, l.lng], 16), 50);
@@ -383,8 +390,8 @@
     return orders.map((o) => ({
       key: 's:' + o.id, n: String(o.id).padStart(4, '0'), toName: name(o.to_id), fromName: name(o.from_id),
       rank: o.rank, why: o.reason, at: o.created_at, toMe: o.to_id === session.user.id,
-      fromFounder: !!(members.find((x) => x.id === o.from_id) || {}).is_founder || o.rank === 'k9'
-    })).filter((o) => o.toMe || isCommander());
+      fromFounder: true
+    })).filter((o) => o.toMe || (me && me.is_founder));
   }
 
   window.AQSync = {
