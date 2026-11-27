@@ -1,12 +1,12 @@
 // Archive Quest service worker.
 // Оболочка приложения: сначала сеть (3 с), без сети — кэш.
 // Тайлы карты и шрифты: сначала кэш — всё, что ты уже смотрел онлайн, открывается офлайн.
-const VERSION = '7';
+const VERSION = '10';
 const SHELL_CACHE = 'aq-shell-v' + VERSION;
 const TILE_CACHE = 'aq-tiles-v1';
 const FONT_CACHE = 'aq-fonts-v1';
 const MAX_TILES = 4000;
-const SHELL = ['./', 'index.html', 'styles.css?v=' + VERSION, 'app.js?v=' + VERSION, 'manifest.webmanifest', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const SHELL = ['./', 'index.html', 'styles.css?v=' + VERSION, 'app.js?v=' + VERSION, 'sync.js?v=' + VERSION, 'config.js?v=' + VERSION, 'vendor/supabase/supabase.js', 'manifest.webmanifest', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 const KEEP = [SHELL_CACHE, TILE_CACHE, FONT_CACHE];
 
 self.addEventListener('install', (e) => {

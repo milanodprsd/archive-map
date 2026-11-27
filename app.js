@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '7';
+  const APP_VERSION = '10';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -41,6 +41,12 @@
     _: [['Отметиться на точке', 60], ['Сделать фото', 30], ['Своя задача (бонус)', 30]]
   };
 
+  const SEALS = {
+    captured: { jp: '占', name: 'ЗАХВАЧЕНО', hint: 'Был здесь, второй раз не нужно' },
+    banned: { jp: '禁', name: 'ЗАПРЕТНО', hint: 'Не ходить. Выпадает из линий' }
+  };
+  const ZONE_RADII = [100, 250, 500, 1000, 2000];
+
   // ---------- состояние ----------
   const defaults = () => ({
     v: 1,
@@ -49,6 +55,9 @@
     friends: [],
     customCats: [],
     filter: [],
+    zones: [],
+    hideSealed: false,
+    mapStyle: 'xerox',
     orderSeq: 0,
     lastView: null
   });
@@ -61,9 +70,10 @@
     } catch (e) { /* пусто */ }
     return defaults();
   }
-  function save() {
+  function save(fromSync) {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
     catch (e) { toast('Не хватает места: удали пару фото у точек'); }
+    if (!fromSync && window.AQSync) window.AQSync.onSave();
   }
 
   // ---------- утилиты ----------
@@ -122,12 +132,12 @@
     const map = {};
     S.points.forEach((p) => {
       const key = (p.line || '').trim();
-      if (!key) return;
+      if (!key || p.seal === 'banned') return;
       (map[key] = map[key] || []).push(p);
     });
     return Object.keys(map).map((name) => {
       const pts = map[name];
-      const done = pts.filter((p) => p.cleared).length;
+      const done = pts.filter((p) => p.cleared || p.seal === 'captured').length;
       return { name, points: pts, done, total: pts.length, complete: pts.length > 1 && done === pts.length };
     });
   }
@@ -166,7 +176,7 @@
   }
 
   // ---------- карта ----------
-  let map, markersLayer, meMarker, myPos = null, myPosAt = 0, myAcc = 0, addMode = false;
+  let map, markersLayer, zonesLayer, meMarker, myPos = null, myPosAt = 0, myAcc = 0, addMode = false;
   function initMap() {
     const last = S.lastView || { lat: 35.6702, lng: 139.7027, z: 14 }; // Харадзюку
     map = L.map('map', { zoomControl: false, attributionControl: true }).setView([last.lat, last.lng], last.z);
@@ -174,9 +184,16 @@
       maxZoom: 19, crossOrigin: true,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
+    zonesLayer = L.layerGroup().addTo(map);
     markersLayer = L.layerGroup().addTo(map);
+    applyMapStyle();
+    const zoomClass = () => map.getContainer().classList.toggle('far', map.getZoom() < 14);
+    map.on('zoomend', zoomClass); zoomClass();
     map.on('moveend', () => { const c = map.getCenter(); S.lastView = { lat: c.lat, lng: c.lng, z: map.getZoom() }; save(); });
-    map.on('click', (e) => { if (addMode) { setAddMode(false); openPointForm({ lat: e.latlng.lat, lng: e.latlng.lng }); } });
+    map.on('click', (e) => {
+      if (addMode === 'zone') { setAddMode(false); openZoneForm({ lat: e.latlng.lat, lng: e.latlng.lng }); }
+      else if (addMode) { setAddMode(false); openPointForm({ lat: e.latlng.lat, lng: e.latlng.lng }); }
+    });
     startWatch();
   }
   let watchId = null, centeredOnMe = false;
@@ -185,6 +202,8 @@
     if (!meMarker) meMarker = L.marker([myPos.lat, myPos.lng], { icon: L.divIcon({ className: '', html: '<div class="me-dot"></div>', iconSize: [14, 14] }), interactive: false, zIndexOffset: 1000 }).addTo(map);
     else meMarker.setLatLng([myPos.lat, myPos.lng]);
     if (!centeredOnMe) { centeredOnMe = true; map.setView([myPos.lat, myPos.lng], Math.max(map.getZoom(), 15)); }
+    checkZones();
+    if (window.AQSync) window.AQSync.onPosition();
   }
   function geoError(err) {
     if (err && err.code === 1) toast('Нет доступа к геолокации. iPhone: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании».');
@@ -196,24 +215,79 @@
   }
   let searchQ = '';
   function visiblePoints() {
-    return S.points.filter((p) => (!S.filter.length || S.filter.includes(p.cat)) && (!searchQ || (p.name + ' ' + (p.line || '') + ' ' + (p.note || '')).toLowerCase().includes(searchQ)));
+    return S.points.filter((p) => (!S.hideSealed || !p.seal) && (!S.filter.length || S.filter.includes(p.cat)) && (!searchQ || (p.name + ' ' + (p.line || '') + ' ' + (p.note || '')).toLowerCase().includes(searchQ)));
   }
   function drawMarkers() {
     markersLayer.clearLayers();
     visiblePoints().forEach((p) => {
       const c = cat(p.cat);
-      const html = '<div class="pin ' + (p.cleared ? 'done' : '') + '"><div class="lbl">' + (p.cleared ? '✓ ' : '') + esc(c.jp) + ' · ' + esc(p.name.toUpperCase()) + '</div><div class="stem"></div><div class="dot"></div></div>';
-      const m = L.marker([p.lat, p.lng], { icon: L.divIcon({ className: '', html, iconSize: [0, 0] }), keyboard: true, title: p.name });
+      const seal = p.seal && SEALS[p.seal];
+      const cls = seal ? 'seal-' + p.seal : (p.cleared ? 'done' : '');
+      const mark = seal ? seal.jp + ' ' : (p.cleared ? '✓ ' : '');
+      const html = '<div class="pin ' + cls + '"><div class="lbl">' + mark + esc(c.jp) + ' · ' + esc(p.name.toUpperCase()) + '</div><div class="stem"></div><div class="dot"></div></div>';
+      const m = L.marker([p.lat, p.lng], { icon: L.divIcon({ className: '', html, iconSize: [0, 0] }), keyboard: true, title: p.name, zIndexOffset: seal ? -100 : 0 });
       m.on('click', () => { location.hash = '#/point/' + p.id; });
       markersLayer.addLayer(m);
     });
   }
+  function drawZones() {
+    zonesLayer.clearLayers();
+    S.zones.forEach((z) => {
+      const circle = L.circle([z.lat, z.lng], { radius: z.r, color: '#FF3D2E', weight: 2, dashArray: '6 6', fillColor: '#FF3D2E', fillOpacity: 0.14, className: 'zone' });
+      circle.on('click', (e) => { if (addMode) return; L.DomEvent.stopPropagation(e); openZoneForm(null, z); });
+      zonesLayer.addLayer(circle);
+      const label = L.marker([z.lat, z.lng], { icon: L.divIcon({ className: '', html: '<div class="zone-lbl"><span class="jp">禁</span>' + esc(z.name.toUpperCase()) + '</div>', iconSize: [0, 0] }), interactive: false });
+      zonesLayer.addLayer(label);
+    });
+  }
+  const zoneWarned = new Set();
+  function checkZones() {
+    if (!myPos) return;
+    S.zones.forEach((z) => {
+      const inside = distance(myPos, z) <= z.r;
+      if (inside && !zoneWarned.has(z.id)) { zoneWarned.add(z.id); toast('禁 Ты в запретной зоне «' + z.name + '»'); if (navigator.vibrate) navigator.vibrate([80, 60, 80]); }
+      if (!inside) zoneWarned.delete(z.id);
+    });
+  }
+  function openZoneForm(base, existing) {
+    const z = existing || { id: uid(), name: '', lat: base.lat, lng: base.lng, r: 250 };
+    const bg = document.createElement('div');
+    bg.className = 'sheet-bg';
+    bg.innerHTML = `<form class="sheet" id="zf">
+      <div class="between"><div class="row"><span class="jp" style="color:var(--accent);font-size:26px">禁</span><div class="h2">${existing ? 'ЗАПРЕТНАЯ ЗОНА' : 'НОВАЯ ЗАПРЕТНАЯ ЗОНА'}</div></div><button type="button" class="iconbtn" data-x aria-label="Закрыть">${ICON.close}</button></div>
+      <div class="small" style="line-height:1.5">Район, куда не ходим. На карте он закрашен красным, а когда заходишь внутрь, телефон предупредит.</div>
+      <label class="field"><span>НАЗВАНИЕ</span><input class="input" name="n" required maxlength="30" value="${esc(z.name)}" placeholder="например, туристический ад"></label>
+      <div class="field"><span>РАДИУС</span><div class="chips">${ZONE_RADII.map((r) => '<button type="button" class="chip ' + (r === z.r ? 'on' : '') + '" data-r="' + r + '">' + (r < 1000 ? r + ' М' : r / 1000 + ' КМ') + '</button>').join('')}</div></div>
+      <button class="btn primary block" type="submit">${existing ? 'СОХРАНИТЬ' : 'ОБЪЯВИТЬ ЗОНУ'}</button>
+      ${existing ? '<button type="button" class="btn ghost block" id="zf-del">СНЯТЬ ЗАПРЕТ</button>' : ''}
+    </form>`;
+    $('#app').appendChild(bg);
+    const close = () => bg.remove();
+    $('[data-x]', bg).onclick = close;
+    bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
+    bg.querySelectorAll('[data-r]').forEach((b) => b.onclick = () => { z.r = +b.dataset.r; bg.querySelectorAll('[data-r]').forEach((x) => x.classList.toggle('on', x === b)); });
+    if (existing) $('#zf-del', bg).onclick = () => { S.zones = S.zones.filter((x) => x.id !== z.id); save(); close(); drawZones(); toast('Запрет снят'); };
+    $('#zf', bg).onsubmit = (e) => {
+      e.preventDefault();
+      z.name = e.target.n.value.trim();
+      if (!existing) S.zones.push(z);
+      save(); close(); drawZones(); checkZones();
+      toast(existing ? 'Сохранено' : '禁 Зона объявлена');
+    };
+  }
+  function applyMapStyle() {
+    const el = map.getContainer();
+    el.classList.toggle('style-night', S.mapStyle === 'night');
+    el.classList.toggle('style-xerox', S.mapStyle !== 'night');
+  }
   function setAddMode(on) {
     addMode = on;
     const h = $('#addhint');
-    if (h) h.style.display = on ? 'flex' : 'none';
-    const f = $('#fab-add');
-    if (f) { f.classList.toggle('active', on); f.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+    if (h) { h.style.display = on ? 'flex' : 'none'; const t = $('#addhint-text'); if (t) t.textContent = on === 'zone' ? 'Коснись карты: центр запретной зоны' : 'Коснись карты, где поставить точку'; }
+    const f = $('#fab-add'), z = $('#fab-zone');
+    if (f) { f.classList.toggle('active', on === true); f.setAttribute('aria-pressed', on === true ? 'true' : 'false'); }
+    if (z) { z.classList.toggle('active', on === 'zone'); z.setAttribute('aria-pressed', on === 'zone' ? 'true' : 'false'); }
+    const here = $('#add-here'); if (here) here.hidden = on === 'zone';
     if (on) startWatch();
   }
   function locate() {
@@ -231,6 +305,7 @@
   function route() {
     const h = location.hash.replace(/^#\/?/, '') || 'map';
     const [name, arg] = h.split('/');
+    if (name === 'join') { if (window.AQSync) window.AQSync.handleJoinLink(arg); return; }
     const tab = { map: 'map', quests: 'quests', point: 'quests', categories: 'categories', profile: 'profile', grant: 'profile', ranks: 'profile', order: 'profile' }[name] || 'map';
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
     if (!S.profile.name && name !== 'order') return renderOnboarding();
@@ -266,16 +341,17 @@
     const r = myRank();
     const cats = allCats();
     const chips = '<button class="chip ' + (S.filter.length ? '' : 'on') + '" data-f="">ВСЁ</button>' +
-      cats.map((c) => '<button class="chip ' + (S.filter.includes(c.id) ? 'on' : '') + '" data-f="' + c.id + '">' + esc(c.short) + '</button>').join('');
-    const active = lines().filter((l) => !l.complete).sort((a, b) => b.done - a.done)[0];
+      cats.map((c) => '<button class="chip ' + (S.filter.includes(c.id) ? 'on' : '') + '" data-f="' + c.id + '">' + esc(c.short) + '</button>').join('') +
+      '<button class="chip ' + (S.hideSealed ? 'on' : '') + '" id="chip-sealed">' + (S.hideSealed ? 'ПОКАЗАТЬ 占禁' : 'СКРЫТЬ 占禁') + '</button>';
+    const active = lines().filter((l) => !l.complete && l.points.some((p) => !p.cleared && !p.seal)).sort((a, b) => b.done - a.done)[0];
     let bottom;
     if (active) {
-      const next = active.points.find((p) => !p.cleared);
+      const next = active.points.find((p) => !p.cleared && !p.seal);
       const dist = next && myPos ? ' · ' + fmtDist(distance(myPos, next)) : '';
       bottom = `<a class="card line-card" href="#/point/${next.id}">
         <div class="between"><div><div class="eyebrow" style="color:#555550">QUEST LINE</div><div class="h2">${esc(active.name.toUpperCase())}</div></div>
         <span class="tag" style="background:var(--ink);color:var(--paper);font-size:12px">${active.done} / ${active.total}</span></div>
-        <div class="progress" style="--n:${active.total}">${active.points.map((p) => '<i class="' + (p.cleared ? 'on' : '') + '"></i>').join('')}</div>
+        <div class="progress" style="--n:${active.total}">${active.points.map((p) => '<i class="' + (p.cleared || p.seal === 'captured' ? 'on' : '') + '"></i>').join('')}</div>
         <div class="between mono" style="font-size:11px"><span>Следующая: ${esc(next.name)}${dist}</span></div></a>`;
     } else if (!S.points.length) {
       bottom = `<div class="card line-card"><div class="h2">КАРТА ПУСТА</div><div class="mono" style="font-size:11px;line-height:1.5">Нажми «+», потом коснись карты, чтобы поставить первую точку. Укажи линию (например, «Урахара»), чтобы собрать точки в квест-линию.</div></div>`;
@@ -295,23 +371,28 @@
         </label>
         <div class="chips">${chips}</div>
       </div>
-      <div class="add-hint" id="addhint" style="display:${addMode ? 'flex' : 'none'}"><span>Коснись карты, где поставить точку</span>
+      <div class="add-hint" id="addhint" style="display:${addMode ? 'flex' : 'none'}"><span id="addhint-text">${addMode === 'zone' ? 'Коснись карты: центр запретной зоны' : 'Коснись карты, где поставить точку'}</span>
         <span class="row"><button class="btn sm" style="background:var(--ink);color:var(--paper)" id="add-here">СЮДА, ГДЕ Я</button>
         <button class="iconbtn" style="width:36px;height:36px;border-color:var(--ink);background:transparent;color:var(--ink)" id="add-cancel" aria-label="Отмена">${ICON.close}</button></span></div>
       <div class="fab-col">
         <button class="iconbtn light" id="fab-add" aria-label="Добавить точку">${ICON.plus}</button>
+        <button class="iconbtn ${addMode === 'zone' ? 'active' : ''}" id="fab-zone" aria-label="Запретная зона" style="color:var(--paper);font-family:var(--jp);font-weight:900;font-size:18px">禁</button>
+        <button class="iconbtn" id="fab-style" aria-label="Стиль карты: ${S.mapStyle === 'night' ? 'ночь' : 'ксерокс'}" style="color:var(--paper);font-family:var(--mono);font-size:10px;letter-spacing:.06em">${S.mapStyle === 'night' ? 'NIGHT' : 'XEROX'}</button>
         <button class="iconbtn" id="fab-loc" aria-label="Где я" style="color:var(--paper)">${ICON.locate}</button>
       </div>
       ${bottom}
     </div>`;
-    view().querySelectorAll('.chip').forEach((b) => b.onclick = () => {
+    view().querySelectorAll('.chip[data-f]').forEach((b) => b.onclick = () => {
       const f = b.dataset.f;
       if (!f) S.filter = [];
       else S.filter = S.filter.includes(f) ? S.filter.filter((x) => x !== f) : S.filter.concat(f);
       save(); renderMap(); drawMarkers();
     });
     $('#q').oninput = (e) => { searchQ = e.target.value.trim().toLowerCase(); drawMarkers(); };
-    $('#fab-add').onclick = () => { setAddMode(!addMode); if (addMode) toast('Коснись карты, где поставить точку'); };
+    $('#fab-add').onclick = () => { setAddMode(addMode === true ? false : true); if (addMode) toast('Коснись карты, где поставить точку'); };
+    $('#fab-zone').onclick = () => { setAddMode(addMode === 'zone' ? false : 'zone'); if (addMode) toast('Коснись карты: центр запретной зоны'); };
+    $('#fab-style').onclick = () => { S.mapStyle = S.mapStyle === 'night' ? 'xerox' : 'night'; save(); applyMapStyle(); renderMap(); };
+    $('#chip-sealed').onclick = () => { S.hideSealed = !S.hideSealed; save(); renderMap(); };
     $('#fab-loc').onclick = locate;
     $('#add-cancel').onclick = () => setAddMode(false);
     $('#add-here').onclick = () => {
@@ -321,7 +402,9 @@
       toast('Ищу тебя…');
       navigator.geolocation.getCurrentPosition((pos) => { onPos(pos); go(); }, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
     };
+    if (addMode === 'zone') $('#add-here').hidden = true;
     drawMarkers();
+    drawZones();
   }
 
   // ---------- форма точки ----------
@@ -440,7 +523,7 @@
       <div class="stats" style="--n:3">
         <div><span>НАГРАДА</span><b>+${p.tasks.reduce((a, t) => a + t.xp, 0)} XP</b></div>
         <div><span>ОТМЕЧЕНО</span><b>${potential} XP</b></div>
-        <div><span>СТАТУС</span><b style="color:${p.cleared ? 'var(--accent)' : 'inherit'}">${p.cleared ? '済' : '未'}</b></div>
+        <div><span>СТАТУС</span><b style="color:${p.cleared || p.seal ? 'var(--accent)' : 'inherit'}">${p.seal ? SEALS[p.seal].jp : p.cleared ? '済' : '未'}</b></div>
       </div>
       <div>
         <div class="eyebrow" style="padding-bottom:6px">ЗАДАЧИ КВЕСТА / 任務</div>
@@ -455,8 +538,18 @@
         <button class="btn ghost block" id="pt-reopen">ОТКРЫТЬ ЗАНОВО</button>`
       : `<div class="small" style="text-align:center">Чек-ин по геолокации: нужно быть в радиусе ${CHECKIN_RADIUS} м</div>
         <button class="btn primary block" id="pt-close">ЗАКРЫТЬ КВЕСТ</button>`}
+      <div>
+        <div class="eyebrow" style="padding-bottom:6px">ОТМЕТКА МЕСТА / 印</div>
+        <div class="tabs2" style="--n:3">
+          <button data-seal="" class="${!p.seal ? 'on' : ''}">НЕТ</button>
+          <button data-seal="captured" class="${p.seal === 'captured' ? 'on' : ''}">占 ЗАХВАЧЕНО</button>
+          <button data-seal="banned" class="${p.seal === 'banned' ? 'on' : ''}">禁 ЗАПРЕТНО</button>
+        </div>
+        <div class="small" style="margin-top:6px">${p.seal ? esc(SEALS[p.seal].hint) : 'Захвачено: был, второй раз не нужно. Запретно: не ходить.'}</div>
+      </div>
       <a class="btn ghost block" href="${appleMaps}" target="_blank" rel="noopener">МАРШРУТ В КАРТАХ</a>
     `);
+    view().querySelectorAll('[data-seal]').forEach((b) => b.onclick = () => { p.seal = b.dataset.seal || null; save(); renderPoint(id); toast(p.seal ? SEALS[p.seal].jp + ' ' + SEALS[p.seal].name : 'Отметка снята'); });
     view().querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { const t = p.tasks[+b.dataset.t]; t.done = !t.done; save(); renderPoint(id); });
     $('#pt-edit').onclick = () => openPointForm(null, p);
     if ($('#pt-reopen')) {
@@ -503,10 +596,10 @@
   let questFilter = 'open';
   function renderQuests() {
     const ls = lines();
-    const loose = S.points.filter((p) => !p.line);
-    const show = (p) => questFilter === 'all' || (questFilter === 'open' ? !p.cleared : p.cleared);
+    const loose = S.points.filter((p) => !p.line || p.seal === 'banned');
+    const show = (p) => questFilter === 'all' || (questFilter === 'open' ? !p.cleared && !p.seal : p.cleared || !!p.seal);
     const item = (p) => `<a class="list-item" href="#/point/${p.id}">
-      <span class="check ${p.cleared ? 'on' : ''}">${p.cleared ? '✓' : ''}</span>
+      <span class="check ${p.cleared || p.seal ? 'on' : ''}" style="${p.seal ? 'font-family:var(--jp);font-size:13px;' + (p.seal === 'captured' ? 'background:#5A5A55;border-color:#5A5A55;color:var(--paper)' : '') : ''}">${p.seal ? SEALS[p.seal].jp : p.cleared ? '✓' : ''}</span>
       <span class="grow"><span style="display:block;font-size:14px;font-weight:700">${esc(p.name)}</span><span class="small">${esc(cat(p.cat).jp + ' · ' + cat(p.cat).short)}${myPos ? ' · ' + fmtDist(distance(myPos, p)) : ''}</span></span>
       <span class="small">${p.cleared ? '+' + pointXP(p) : '+' + p.tasks.reduce((a, t) => a + t.xp, 0)}</span></a>`;
     const blocks = ls.map((l) => {
@@ -514,7 +607,7 @@
       if (!pts.length) return '';
       return `<div class="box" style="padding:12px;display:flex;flex-direction:column;gap:8px">
         <div class="between"><div><div class="eyebrow">QUEST LINE${l.complete ? ' · +' + LINE_BONUS + ' XP' : ''}</div><div class="h2">${esc(l.name.toUpperCase())}</div></div><span class="tag ${l.complete ? 'accent' : 'paper'}">${l.done} / ${l.total}</span></div>
-        <div class="progress" style="--n:${l.total};color:var(--line-2)">${l.points.map((p) => '<i class="' + (p.cleared ? 'on' : '') + '"></i>').join('')}</div>
+        <div class="progress" style="--n:${l.total};color:var(--line-2)">${l.points.map((p) => '<i class="' + (p.cleared || p.seal === 'captured' ? 'on' : '') + '"></i>').join('')}</div>
         <div>${pts.map(item).join('')}</div></div>`;
     }).join('');
     const looseShown = loose.filter(show);
@@ -522,11 +615,11 @@
       <div class="topbar"><div><div class="eyebrow">QUEST LOG / 任務帳</div><h1 class="h1">КВЕСТЫ</h1></div><span class="tag paper">${S.points.filter((p) => p.cleared).length} / ${S.points.length}</span></div>
       <div class="tabs2" style="--n:3">
         <button data-qf="open" class="${questFilter === 'open' ? 'on' : ''}">ОТКРЫТЫЕ</button>
-        <button data-qf="done" class="${questFilter === 'done' ? 'on' : ''}">ЗАКРЫТЫЕ</button>
+        <button data-qf="done" class="${questFilter === 'done' ? 'on' : ''}">ЗАКРЫТЫЕ · 占禁</button>
         <button data-qf="all" class="${questFilter === 'all' ? 'on' : ''}">ВСЕ</button>
       </div>
       ${blocks}
-      ${looseShown.length ? '<div><div class="eyebrow" style="padding-bottom:6px">БЕЗ ЛИНИИ</div>' + looseShown.map(item).join('') + '</div>' : ''}
+      ${looseShown.length ? '<div><div class="eyebrow" style="padding-bottom:6px">БЕЗ ЛИНИИ / ВНЕ ЛИНИЙ</div>' + looseShown.map(item).join('') + '</div>' : ''}
       ${!S.points.length ? '<div class="empty">Пока нет точек. Открой карту, нажми «+» и коснись карты.</div>' : (!blocks && !looseShown.length ? '<div class="empty">Здесь пусто.</div>' : '')}
     `);
     view().querySelectorAll('[data-qf]').forEach((b) => b.onclick = () => { questFilter = b.dataset.qf; renderQuests(); });
@@ -586,6 +679,8 @@
         if (!p) return '<div class="stamp empty" style="transform:rotate(' + ((i % 3) * 6 - 6) + 'deg)"><span class="jp">?</span><span class="mono">———</span></div>';
         return '<a class="stamp" href="#/point/' + p.id + '" style="transform:rotate(' + ((i % 3) * 6 - 6) + 'deg)"><span class="jp">' + esc(cat(p.cat).jp.slice(0, 1)) + '</span><span class="mono">' + esc(p.name.toUpperCase()) + '</span></a>';
       }).join('') + '</div>';
+    } else if (profileTab === 'squad' && window.AQSync && window.AQSync.enabled) {
+      tabHtml = window.AQSync.squadHtml();
     } else if (profileTab === 'squad') {
       tabHtml = (S.profile.founder ? '' : '<div class="empty">Выдавать ранги может только ZERO-CLASS. Здесь ты ведёшь список своего отряда.</div>') +
         '<div>' + (S.friends.length ? S.friends.map((f) => `<div class="list-item" style="cursor:default">
@@ -607,7 +702,8 @@
         <div class="sep"></div>
         ${S.profile.founder ? '<div class="small">Режим основателя включён на этом устройстве.</div><button class="btn sm ghost" id="founder-off">ВЫКЛЮЧИТЬ РЕЖИМ ОСНОВАТЕЛЯ</button>'
           : '<div class="eyebrow">РЕЖИМ ОСНОВАТЕЛЯ</div><form class="row" id="founder"><input class="input grow" name="c" placeholder="Код основателя" autocomplete="off" aria-label="Код основателя"><button class="btn sm ghost" style="height:46px">ВОЙТИ</button></form>'}
-        <a class="btn sm ghost" href="#/ranks">ЛЕСТНИЦА РАНГОВ</a>`;
+        <a class="btn sm ghost" href="#/ranks">ЛЕСТНИЦА РАНГОВ</a>
+        ${window.AQSync ? window.AQSync.settingsHtml() : ''}`;
     }
     const hist = S.profile.orders.slice(-1)[0];
     screen(`
@@ -649,6 +745,7 @@
     if (af) af.onsubmit = (e) => { e.preventDefault(); const n = e.target.n.value.trim(); if (!n) return; S.friends.push({ id: uid(), name: n, rank: 'r3', history: [] }); save(); renderProfile(); };
     if ($('#set-name-save')) $('#set-name-save').onclick = () => { const n = $('#set-name').value.trim(); if (n) { S.profile.name = n; save(); toast('Сохранено'); renderProfile(); } };
     if ($('#exp')) $('#exp').onclick = exportData;
+    if (window.AQSync) { window.AQSync.bindSettings(); window.AQSync.bindSquad(); }
     if ($('#ava-me')) $('#ava-me').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; S.profile.avatar = await squareImage(f, 320); save(); renderProfile(); };
     view().querySelectorAll('[data-fa]').forEach((inp) => inp.onchange = async (e) => {
       const f = e.target.files[0], fr = S.friends.find((x) => x.id === inp.dataset.fa);
@@ -799,6 +896,24 @@
   // ---------- старт ----------
   initMap();
   route();
+  if (window.AQSync) {
+    window.AQSync.init({
+      S: () => S, save, toast, esc, avatar, fmtNum, fmtDist, distance,
+      RANKS, ZERO, rankById, rankIndex, rankFromXP, totalXP,
+      map: () => map,
+      myPos: () => (myPos ? { lat: myPos.lat, lng: myPos.lng, acc: myAcc } : null),
+      requestPosition: () => { startWatch(); if (navigator.geolocation) navigator.geolocation.getCurrentPosition(onPos, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }); },
+      rerender: () => route(),
+      openSquadTab: () => { profileTab = 'squad'; if (location.hash !== '#/profile') location.hash = '#/profile'; else route(); },
+      onSyncChange: () => {
+        const h = location.hash || '';
+        const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+        if (typing || document.querySelector('.sheet-bg')) return;
+        if (/^#\/profile/.test(h)) renderProfile();
+        else if (/^#\/?(map)?$/.test(h)) { const b = $('.rankbadge'); const r = myRank(); if (b && !b.textContent.includes(r.name)) renderMap(); }
+      }
+    });
+  }
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
