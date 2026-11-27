@@ -37,7 +37,12 @@
     const m = (e && (e.message || e.error_description)) || String(e);
     if (/founder already exists/.test(m)) return 'Основатель уже есть';
     if (/bad invite code/.test(m)) return 'Неверный код отряда';
+    if (/only founder grants k9/.test(m)) return 'Ранг 玖 выдаёт только ZERO-CLASS';
     if (/only founder/.test(m)) return 'Только ZERO-CLASS';
+    if (/only commander/.test(m)) return 'Только командир отряда';
+    if (/founder has squad/.test(m)) return 'У основателя уже есть свой отряд';
+    if (/not in your squad/.test(m)) return 'Этот человек не в твоём отряде';
+    if (/not yourself/.test(m)) return 'Себе нельзя';
     if (/Password should be/i.test(m)) return 'Пароль слишком простой (нужно от 6 символов)';
     if (/signups not allowed|Signups not allowed/i.test(m)) return 'Регистрация выключена в Supabase';
     if (/rate limit/i.test(m)) return 'Слишком часто. Подожди минуту';
@@ -224,10 +229,14 @@
     if (!me) return `<div class="empty">Загружаю отряд…</div>`;
     if (!me.squad_id) {
       return `${!founderExists ? `<div class="card"><div class="h2">零 СТАТЬ ОСНОВАТЕЛЕМ</div><div class="mono" style="font-size:11px;line-height:1.5">Основатель один на весь мир: кто нажмёт первым, тот получит ZERO-CLASS и создаст отряд.</div><button class="btn primary block" id="sq-claim">Я ОСНОВАТЕЛЬ</button></div>` : ''}
+        <div class="eyebrow">СОЗДАТЬ СВОЙ ОТРЯД</div>
+        <div class="small" style="line-height:1.5">Ты станешь командиром 班長: зовёшь друзей по ссылке, видишь их на карте и выдаёшь им ранги до Special Class.</div>
+        <form class="row" id="sq-create"><input class="input grow" name="n" maxlength="24" placeholder="Название отряда" aria-label="Название отряда"><button class="btn sm ghost" style="height:46px">СОЗДАТЬ</button></form>
         <div class="eyebrow">ВСТУПИТЬ В ОТРЯД</div>
         <form class="row" id="sq-join"><input class="input grow" name="c" maxlength="12" autocapitalize="characters" placeholder="Код отряда" aria-label="Код отряда" value="${esc(pendingJoin || '')}"><button class="btn sm ghost" style="height:46px">ВСТУПИТЬ</button></form>`;
     }
     const isFounder = me.is_founder;
+    const isOwner = !!(squad && squad.owner === session.user.id);
     const locBy = Object.fromEntries(locations.map((l) => [l.user_id, l]));
     const myPos = A.myPos();
     const rows = members.map((m) => {
@@ -239,9 +248,9 @@
       return `<div class="list-item" style="cursor:default">
         ${A.avatar(m.avatar, m.name || '?', 40)}
         <span class="grow"><span style="display:block;font-size:14px;font-weight:700">${esc(m.name || 'Без имени')}${m.id === session.user.id ? ' · ТЫ' : ''}</span>
-        <span class="small">${esc(r.name)} · ${esc(r.jp)} · ${A.fmtNum(m.xp || 0)} XP</span>
+        <span class="small">${squad && squad.owner === m.id && !m.is_founder ? '<b style="color:var(--accent)">班長 КОМАНДИР</b> · ' : ''}${esc(r.name)} · ${esc(r.jp)} · ${A.fmtNum(m.xp || 0)} XP</span>
         <span class="small" style="display:block">${fresh && m.id !== session.user.id ? '<a href="#/map" data-fly="' + m.id + '" style="color:var(--accent)">◎ ' + esc(where) + '</a>' : esc(where)}</span></span>
-        ${isFounder && !m.is_founder ? '<button class="btn sm" style="border:1px solid var(--accent);color:var(--accent);background:none" data-grant="' + m.id + '">ВЫДАТЬ</button>' : ''}
+        ${isOwner && !m.is_founder && m.id !== session.user.id ? '<button class="btn sm" style="border:1px solid var(--accent);color:var(--accent);background:none" data-grant="' + m.id + '">ВЫДАТЬ</button>' : ''}
       </div>`;
     }).join('');
     const invite = location.origin + location.pathname + '#/join/' + (squad ? squad.invite_code : '');
@@ -253,7 +262,7 @@
       </label>
       <div>${rows || '<div class="empty">В отряде пока только ты.</div>'}</div>
       ${squad ? '<button class="btn ghost block" id="sq-invite" data-url="' + esc(invite) + '">ПОЗВАТЬ В ОТРЯД</button>' : ''}
-      ${!isFounder ? '<button class="btn sm ghost" id="sq-leave">ПОКИНУТЬ ОТРЯД</button>' : ''}`;
+      ${!isFounder ? '<button class="btn sm ghost" id="sq-leave">ПОКИНУТЬ ОТРЯД</button>' + (isOwner && members.length > 1 ? '<div class="small">Если уйдёшь, командиром станет самый опытный в отряде.</div>' : '') : ''}`;
   }
   function bindSquad() {
     if (!online()) return;
@@ -264,6 +273,14 @@
       const { error } = await sb.rpc('claim_founder', { squad_name: 'ОТРЯД ' + (A.S().profile.name || '').toUpperCase() });
       if (error) return A.toast(errText(error));
       A.toast('零 Ты основатель'); await refresh();
+    };
+    const create = document.getElementById('sq-create');
+    if (create) create.onsubmit = async (e) => {
+      e.preventDefault();
+      const name = e.target.n.value.trim() || ('ОТРЯД ' + (A.S().profile.name || '')).toUpperCase();
+      const { error } = await sb.rpc('create_squad', { squad_name: name });
+      if (error) return A.toast(errText(error));
+      A.toast('班 Отряд создан. Ты командир'); await refresh();
     };
     const join = document.getElementById('sq-join');
     if (join) join.onsubmit = async (e) => {
@@ -311,10 +328,18 @@
       bg.innerHTML = `<form class="sheet" id="gr">
         <div class="between"><div class="eyebrow">ПРИКАЗ О ПРИСВОЕНИИ / 辞令</div><button type="button" class="iconbtn" data-x aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
         <div class="row box" style="padding:12px;gap:12px">${A.avatar(m.avatar, m.name || '?', 44)}<span class="grow"><b style="display:block;font-size:18px">${esc(m.name || 'Без имени')}</b><span class="small">сейчас: ${esc(cur.name)}</span></span></div>
-        <div style="display:flex;flex-direction:column;gap:6px">${[A.NINE].concat(A.RANKS.slice().reverse()).map((r) => `<button type="button" class="rank-opt ${r.id === 'k9' ? 'nine' : ''} ${pick === r.id ? 'on' : ''}" data-r="${r.id}"><span class="jp">${r.jp}</span><b>${r.name}</b><span class="mono">${r.id === m.granted_rank ? 'ТЕКУЩИЙ' : r.id === 'k9' ? (nineHolder && nineHolder.id !== m.id ? 'СЕЙЧАС У ' + esc((nineHolder.name || '?').toUpperCase()) : 'ОСОБЫЙ · 1 НА МИР') : ''}</span></button>`).join('')}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">${(me && me.is_founder ? [A.NINE] : []).concat(A.RANKS.slice().reverse()).map((r) => `<button type="button" class="rank-opt ${r.id === 'k9' ? 'nine' : ''} ${pick === r.id ? 'on' : ''}" data-r="${r.id}"><span class="jp">${r.jp}</span><b>${r.name}</b><span class="mono">${r.id === m.granted_rank ? 'ТЕКУЩИЙ' : r.id === 'k9' ? (nineHolder && nineHolder.id !== m.id ? 'СЕЙЧАС У ' + esc((nineHolder.name || '?').toUpperCase()) : 'ОСОБЫЙ · 1 НА МИР') : ''}</span></button>`).join('')}</div>
         <label class="field"><span>ЗА ЧТО</span><input class="input" name="why" maxlength="80" placeholder="например, закрыл линию за день"></label>
-        <button class="btn primary block">ПОДПИСАТЬ ПРИКАЗ · ${esc(A.rankById(pick).name)}</button></form>`;
+        <button class="btn primary block">ПОДПИСАТЬ ПРИКАЗ · ${esc(A.rankById(pick).name)}</button>
+        <button type="button" class="btn sm ghost" id="gr-kick">ИСКЛЮЧИТЬ ИЗ ОТРЯДА</button></form>`;
       bg.querySelector('[data-x]').onclick = () => bg.remove();
+      let kickArmed = false;
+      bg.querySelector('#gr-kick').onclick = async (e) => {
+        if (!kickArmed) { kickArmed = true; e.target.textContent = 'ТОЧНО ИСКЛЮЧИТЬ ' + (m.name || '').toUpperCase() + '?'; return; }
+        const { error } = await sb.rpc('kick_member', { target: m.id });
+        if (error) return A.toast(errText(error));
+        bg.remove(); A.toast('Исключён из отряда'); await refresh();
+      };
       bg.querySelectorAll('[data-r]').forEach((b) => b.onclick = () => { pick = b.dataset.r; const why = bg.querySelector('[name=why]').value; draw(); bg.querySelector('[name=why]').value = why; });
       bg.querySelector('#gr').onsubmit = async (e) => {
         e.preventDefault();
@@ -350,18 +375,20 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && session) { refresh(); shareLocation(true); } });
   }
 
+  function isCommander() { return !!(session && squad && squad.owner === session.user.id); }
   // приказы в общем виде для вкладки «Приказы»
   function ordersList() {
     if (!session) return [];
     const name = (id) => { const m = members.find((x) => x.id === id); return m ? (m.name || 'Без имени') : '—'; };
     return orders.map((o) => ({
       key: 's:' + o.id, n: String(o.id).padStart(4, '0'), toName: name(o.to_id), fromName: name(o.from_id),
-      rank: o.rank, why: o.reason, at: o.created_at, toMe: o.to_id === session.user.id
-    })).filter((o) => o.toMe || (me && me.is_founder));
+      rank: o.rank, why: o.reason, at: o.created_at, toMe: o.to_id === session.user.id,
+      fromFounder: !!(members.find((x) => x.id === o.from_id) || {}).is_founder || o.rank === 'k9'
+    })).filter((o) => o.toMe || isCommander());
   }
 
   window.AQSync = {
-    enabled, init, online, orders: ordersList,
+    enabled, init, online, orders: ordersList, isCommander,
     onSave: () => pushProfile(false),
     onPosition: () => shareLocation(false),
     settingsHtml, bindSettings, squadHtml, bindSquad, handleJoinLink, redraw: drawSquadOnMap

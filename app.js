@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '16';
+  const APP_VERSION = '17';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -1046,6 +1046,7 @@
     const r = rankById(o.rank);
     const text = (ORDER_TEXT[o.rank] || ORDER_TEXT.r3).replace('{name}', '<b>' + esc(o.toName || 'следователь') + '</b>');
     const nine = o.rank === 'k9';
+    const zero = o.fromFounder !== false; // локальные приказы и приказы основателя
     return `<article class="doc ${nine ? 'doc-nine' : ''}">
       <div class="doc-head"><span class="jp">喰種対策局 · 本局</span><span class="mono">ARCHIVE QUEST / CCG</span></div>
       <div class="doc-title"><span class="jp">辞令</span><div><b>ПРИКАЗ</b><span class="mono">№${esc(o.n)} · ${esc(fmtDate(o.at))}</span></div></div>
@@ -1055,8 +1056,8 @@
       ${o.why ? '<p class="doc-why mono"><span>ОСНОВАНИЕ</span>' + esc(o.why) + '</p>' : ''}
       <p class="doc-close">${ORDER_CLOSE}</p>
       <div class="doc-foot">
-        <div class="doc-sign">${signatureSVG(o.fromName)}<span class="mono">${esc((o.fromName || '').toUpperCase())} · ZERO-CLASS / 零</span></div>
-        ${sealSVG(nine ? '玖' : '零', nine ? '第九班 ✦ 9TH DIVISION ✦ 承認 ✦ ZERO ✦ ' : 'ZERO-CLASS ✦ 喰種対策局 ✦ 承認 ✦ ')}
+        <div class="doc-sign">${signatureSVG(o.fromName)}<span class="mono">${esc((o.fromName || '').toUpperCase())} · ${zero ? 'ZERO-CLASS / 零' : 'КОМАНДИР ОТРЯДА / 班長'}</span></div>
+        ${sealSVG(nine ? '玖' : zero ? '零' : '班', nine ? '第九班 ✦ 9TH DIVISION ✦ 承認 ✦ ZERO ✦ ' : zero ? 'ZERO-CLASS ✦ 喰種対策局 ✦ 承認 ✦ ' : 'SQUAD LEADER ✦ 班長 ✦ 喰種対策局 ✦ 承認 ✦ ')}
       </div>
       <div class="doc-code mono"><span>CCG-${esc(o.n)}-${esc(String(o.rank).toUpperCase())}</span><i class="bars" style="--seed:${Math.abs(hash(o.key)) % 7 + 2}px"></i></div>
     </article>`;
@@ -1074,7 +1075,7 @@
       return;
     }
     const seen = seenOrders();
-    const founder = S.profile.founder;
+    const founder = S.profile.founder || !!(window.AQSync && window.AQSync.isCommander && window.AQSync.isCommander());
     screen(`<div class="topbar"><span style="width:44px"></span><div class="eyebrow">ПРИКАЗЫ / 辞令</div><span style="width:44px"></span></div>
       <h1 class="h1">ПРИКАЗЫ</h1>
       ${founder ? '<button class="btn primary block" id="ib-grant">ВЫДАТЬ ПРИКАЗ</button>' : ''}
@@ -1085,7 +1086,7 @@
           <span class="grow"><span style="display:block;font-size:14px;font-weight:800">${o.toMe ? 'ТЕБЕ' : esc((o.toName || '').toUpperCase())} → ${esc(r.name)}</span>
           <span class="small">№${esc(o.n)} · ${esc(fmtDate(o.at))}${o.why ? ' · ' + esc(o.why) : ''}</span></span>
           ${unread ? '<span class="dot" aria-label="Новый"></span>' : ''}</a>`;
-      }).join('') : '<div class="empty">Приказов пока нет. Когда ZERO-CLASS подпишет приказ о твоём ранге, он придёт сюда.</div>'}</div>`);
+      }).join('') : '<div class="empty">Приказов пока нет. Когда командир отряда или ZERO-CLASS подпишет приказ о твоём ранге, он придёт сюда.</div>'}</div>`);
     if ($('#ib-grant')) $('#ib-grant').onclick = () => { profileTab = 'squad'; location.hash = '#/profile'; };
     updateInboxBadge();
   }

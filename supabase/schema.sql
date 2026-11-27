@@ -131,6 +131,7 @@ declare sid uuid;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
   if exists (select 1 from profiles where is_founder) then raise exception 'founder already exists'; end if;
+  perform _leave_current(auth.uid());
   insert into squads (name, owner) values (coalesce(nullif(trim(squad_name), ''), 'ОТРЯД'), auth.uid()) returning id into sid;
   update profiles set is_founder = true, squad_id = sid, updated_at = now() where id = auth.uid();
   return sid;
@@ -142,15 +143,49 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where is_founder)
 $$;
 
--- Вступить в отряд по коду приглашения
+-- Внутренний выход из отряда: командование переходит самому опытному, пустой отряд удаляется
+create or replace function public._leave_current(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare sid uuid; heir uuid;
+begin
+  select squad_id into sid from profiles where id = uid;
+  if sid is null then return; end if;
+  delete from locations where user_id = uid;
+  -- ранг по приказу командира действует только в его отряде (玖 остаётся)
+  update profiles set squad_id = null, granted_rank = case when granted_rank = 'k9' then 'k9' else null end, updated_at = now() where id = uid;
+  if exists (select 1 from squads where id = sid and owner = uid) then
+    select id into heir from profiles where squad_id = sid order by xp desc, updated_at limit 1;
+    if heir is null then delete from squads where id = sid;
+    else update squads set owner = heir where id = sid; end if;
+  end if;
+end $$;
+revoke execute on function public._leave_current(uuid) from public, anon, authenticated;
+
+-- Создать свой отряд: любой, кроме основателя (у него уже есть). Создатель — командир.
+create or replace function public.create_squad(squad_name text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare sid uuid;
+begin
+  if auth.uid() is null then raise exception 'not signed in'; end if;
+  if exists (select 1 from profiles where id = auth.uid() and is_founder) then raise exception 'founder has squad'; end if;
+  perform _leave_current(auth.uid());
+  insert into squads (name, owner) values (left(coalesce(nullif(trim(squad_name), ''), 'ОТРЯД'), 24), auth.uid()) returning id into sid;
+  update profiles set squad_id = sid, updated_at = now() where id = auth.uid();
+  return sid;
+end $$;
+
+-- Вступить в отряд по коду приглашения (из старого отряда выходит автоматически)
 create or replace function public.join_squad(code text) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare sid uuid;
 begin
   if auth.uid() is null then raise exception 'not signed in'; end if;
+  if exists (select 1 from profiles where id = auth.uid() and is_founder) then raise exception 'founder has squad'; end if;
   select id into sid from squads where invite_code = upper(trim(code));
   if sid is null then raise exception 'bad invite code'; end if;
-  update profiles set squad_id = sid, updated_at = now() where id = auth.uid() and not is_founder;
+  if exists (select 1 from profiles where id = auth.uid() and squad_id = sid) then return sid; end if;
+  perform _leave_current(auth.uid());
+  update profiles set squad_id = sid, updated_at = now() where id = auth.uid();
   return sid;
 end $$;
 
@@ -158,37 +193,42 @@ end $$;
 create or replace function public.leave_squad() returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  delete from locations where user_id = auth.uid();
-  update profiles set squad_id = null, updated_at = now() where id = auth.uid() and not is_founder;
+  if exists (select 1 from profiles where id = auth.uid() and is_founder) then raise exception 'founder has squad'; end if;
+  perform _leave_current(auth.uid());
 end $$;
 
--- Приказ: только основатель, только своему отряду, максимум Special Class или особый 玖
+-- Приказ: командир своему отряду до Special Class; особый 玖 — только основатель (ZERO-CLASS)
 create or replace function public.grant_rank(target uuid, new_rank text, why text default null) returns void
 language plpgsql security definer set search_path = public as $$
-declare sid uuid;
+declare sid uuid; founder boolean;
 begin
-  select squad_id into sid from profiles where id = auth.uid() and is_founder;
-  if sid is null then raise exception 'only founder can grant ranks'; end if;
+  select s.id, p.is_founder into sid, founder from squads s join profiles p on p.id = auth.uid() and p.squad_id = s.id where s.owner = auth.uid();
+  if sid is null then raise exception 'only commander can grant ranks'; end if;
+  if target = auth.uid() then raise exception 'not yourself'; end if;
   if new_rank not in ('r3','r2','r1','fc','as','sc','k9') then raise exception 'bad rank'; end if;
-  if not exists (select 1 from profiles where id = target and squad_id = sid) then raise exception 'not in your squad'; end if;
+  if new_rank = 'k9' and not founder then raise exception 'only founder grants k9'; end if;
+  if not exists (select 1 from profiles where id = target and squad_id = sid and not is_founder) then raise exception 'not in your squad'; end if;
   -- 玖 переходит к новому человеку: у прежнего снимается
   if new_rank = 'k9' then update profiles set granted_rank = null, updated_at = now() where granted_rank = 'k9' and id <> target; end if;
+  -- 玖 не может снять обычный командир
+  if not founder and exists (select 1 from profiles where id = target and granted_rank = 'k9') then raise exception 'only founder grants k9'; end if;
   update profiles set granted_rank = new_rank, updated_at = now() where id = target;
   insert into orders (squad_id, from_id, to_id, rank, reason) values (sid, auth.uid(), target, new_rank, left(why, 80));
 end $$;
 
--- Исключить из отряда (основатель)
+-- Исключить из отряда (командир)
 create or replace function public.kick_member(target uuid) returns void
 language plpgsql security definer set search_path = public as $$
 declare sid uuid;
 begin
-  select squad_id into sid from profiles where id = auth.uid() and is_founder;
-  if sid is null then raise exception 'only founder'; end if;
-  delete from locations where user_id = target and squad_id = sid;
-  update profiles set squad_id = null, granted_rank = null where id = target and squad_id = sid and not is_founder;
+  select id into sid from squads where owner = auth.uid();
+  if sid is null then raise exception 'only commander'; end if;
+  if target = auth.uid() then raise exception 'not yourself'; end if;
+  if not exists (select 1 from profiles where id = target and squad_id = sid and not is_founder) then raise exception 'not in your squad'; end if;
+  perform _leave_current(target);
 end $$;
 
-grant execute on function public.claim_founder(text), public.founder_exists(), public.ensure_profile(), public.join_squad(text),
+grant execute on function public.claim_founder(text), public.founder_exists(), public.ensure_profile(), public.join_squad(text), public.create_squad(text),
   public.leave_squad(), public.grant_rank(uuid, text, text), public.kick_member(uuid) to authenticated;
-revoke execute on function public.claim_founder(text), public.ensure_profile(), public.join_squad(text), public.leave_squad(),
+revoke execute on function public.claim_founder(text), public.ensure_profile(), public.join_squad(text), public.create_squad(text), public.leave_squad(),
   public.grant_rank(uuid, text, text), public.kick_member(uuid) from anon, public;
