@@ -89,6 +89,11 @@ drop policy if exists "profiles: правлю только себя" on public.p
 create policy "profiles: правлю только себя" on public.profiles for update to authenticated
   using (id = auth.uid()) with check (id = auth.uid());
 
+-- права на таблицы (в новых проектах Supabase их не выдаёт сам)
+grant usage on schema public to authenticated;
+grant select on public.squads, public.profiles, public.orders, public.locations to authenticated;
+grant insert, update, delete on public.locations to authenticated;
+
 -- менять можно только имя, аватар и XP; ранг, основателя и отряд — только через функции ниже
 revoke update on public.profiles from authenticated, anon;
 grant update (name, avatar, xp, updated_at) on public.profiles to authenticated;

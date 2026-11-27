@@ -41,6 +41,7 @@
     if (/signups not allowed|Signups not allowed/i.test(m)) return 'Регистрация выключена в Supabase';
     if (/rate limit/i.test(m)) return 'Слишком часто. Подожди минуту';
     if (/relation .* does not exist|Could not find the (table|function)|schema cache/i.test(m)) return 'В Supabase нет таблиц. Запусти supabase/schema.sql';
+    if (/permission denied for table/i.test(m)) return 'Нет прав на таблицы. Запусти supabase/schema.sql ещё раз';
     if (/JWT|token/i.test(m)) return 'Сессия устарела. Выйди и войди снова в «Настройках»';
     if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Нет связи с сервером';
     return m;
