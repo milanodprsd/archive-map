@@ -1,7 +1,7 @@
 // Archive Quest service worker.
 // Оболочка приложения: сначала сеть (3 с), без сети — кэш.
 // Тайлы карты и шрифты: сначала кэш — всё, что ты уже смотрел онлайн, открывается офлайн.
-const VERSION = '7';
+const VERSION = '8';
 const SHELL_CACHE = 'aq-shell-v' + VERSION;
 const TILE_CACHE = 'aq-tiles-v1';
 const FONT_CACHE = 'aq-fonts-v1';

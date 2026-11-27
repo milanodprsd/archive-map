@@ -24,7 +24,9 @@ input, select, textarea { font: inherit; }
 #app { position: fixed; inset: 0; overflow: hidden; }
 #map { position: absolute; inset: 0 0 calc(var(--tab-h) + var(--safe-b)) 0; background: #0E0E0E; z-index: 0; }
 .leaflet-container { background: #0E0E0E; font-family: var(--mono); }
-.leaflet-tile-pane { filter: invert(1) grayscale(1) brightness(0.72) contrast(1.25); }
+.style-xerox .leaflet-tile-pane { filter: grayscale(1) contrast(1.12) brightness(.97); }
+.style-night .leaflet-tile-pane { filter: invert(1) grayscale(1) brightness(1.15) contrast(.85); }
+.style-xerox { background: #E4E2DC !important; }
 .leaflet-control-attribution { background: rgba(10,10,10,.7) !important; color: #6A6A65 !important; font-size: 9px; }
 .leaflet-control-attribution a { color: #8A8A85 !important; }
 .leaflet-control-zoom { display: none; }
@@ -191,3 +193,26 @@ input, select, textarea, .input, #q { font-size: 16px !important; }
 .ava-img { display: block; flex-shrink: 0; object-fit: cover; filter: grayscale(1) contrast(1.25); }
 .ava-pick { display: inline-flex; cursor: pointer; flex-shrink: 0; }
 .idcard .photo { overflow: hidden; flex-direction: column; }
+
+/* ---------- отметки мест и запретные зоны ---------- */
+.pin.seal-captured .lbl { background: #5A5A55; color: #EDEBE6; text-decoration: line-through; text-decoration-thickness: 1px; }
+.pin.seal-captured .stem { background: #5A5A55; }
+.pin.seal-captured .dot { border-color: #5A5A55; }
+.pin.seal-banned .lbl { background: repeating-linear-gradient(135deg, #FF3D2E 0 6px, #0A0A0A 6px 12px); color: #EDEBE6; text-shadow: 0 0 2px #0A0A0A, 0 0 2px #0A0A0A; }
+.pin.seal-banned .stem { background: var(--accent); }
+.pin.seal-banned .dot { border-color: var(--accent); background: var(--accent); }
+.zone-lbl { transform: translate(-50%, -50%); position: absolute; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: var(--accent); color: var(--ink); font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; padding: 3px 7px; box-shadow: 0 0 0 2px var(--ink); }
+.zone-lbl .jp { font-size: 13px; }
+/* дальний зум: только точки, без подписей */
+.far .pin .lbl { display: none; }
+.far .pin .stem { height: 4px; }
+.far .pin .dot { width: 12px; height: 12px; }
+.far .zone-lbl { font-size: 9px; }
+/* читаемость подписей на светлой карте */
+.style-xerox .pin .lbl { box-shadow: 0 0 0 2px var(--ink), 2px 2px 0 2px var(--ink); }
+.style-xerox .pin .stem { background: var(--ink); }
+.style-xerox .pin .dot { border-color: var(--ink); background: var(--paper); }
+.style-xerox .pin.done .stem, .style-xerox .pin.seal-banned .stem { background: var(--accent); }
+.style-xerox .pin.done .dot { border-color: var(--accent); background: var(--ink); }
+.style-xerox .me-dot { background: var(--accent); box-shadow: 0 0 0 6px rgba(255,61,46,.25), 0 0 0 2px var(--ink); }
+.fab-col .iconbtn.active { background: var(--accent); border-color: var(--accent); color: var(--ink) !important; }
