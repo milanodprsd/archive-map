@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '15';
+  const APP_VERSION = '16';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -812,7 +812,8 @@
         <div class="small" style="line-height:1.5">Приложение, точки и ранги работают без сети. Карта офлайн показывает районы, которые ты уже смотрел онлайн: перед поездкой пролистай нужный район на тех масштабах, что понадобятся.</div>
         <div class="between"><span class="mono" style="font-size:12px" id="tile-count">Сохранено тайлов: …</span><button class="btn sm ghost" id="tile-clear">ОЧИСТИТЬ</button></div>
         <div class="sep"></div>
-        ${S.profile.founder ? '<div class="small">Режим основателя включён на этом устройстве.</div><button class="btn sm ghost" id="founder-off">ВЫКЛЮЧИТЬ РЕЖИМ ОСНОВАТЕЛЯ</button>'
+        ${window.AQSync && window.AQSync.enabled ? '' /* с сервером основатель определяется только сервером */
+          : S.profile.founder ? '<div class="small">Режим основателя включён на этом устройстве.</div><button class="btn sm ghost" id="founder-off">ВЫКЛЮЧИТЬ РЕЖИМ ОСНОВАТЕЛЯ</button>'
           : '<div class="eyebrow">РЕЖИМ ОСНОВАТЕЛЯ</div><form class="row" id="founder"><input class="input grow" name="c" placeholder="Код основателя" autocomplete="off" aria-label="Код основателя"><button class="btn sm ghost" style="height:46px">ВОЙТИ</button></form>'}
         <a class="btn sm ghost" href="#/ranks">ЛЕСТНИЦА РАНГОВ</a>
         ${window.AQSync ? window.AQSync.settingsHtml() : ''}`;
