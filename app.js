@@ -3,7 +3,7 @@
   'use strict';
 
   // ---------- константы ----------
-  const APP_VERSION = '8';
+  const APP_VERSION = '9';
   const STORE_KEY = 'archive-quest:v1';
   const FOUNDER_HASH = '09a28ea2da4c7c9f5a8b32bfc04f5d2303d77528d34bd1572b1b49ce4569a0e2';
   const CHECKIN_RADIUS = 100; // метров
@@ -70,9 +70,10 @@
     } catch (e) { /* пусто */ }
     return defaults();
   }
-  function save() {
+  function save(fromSync) {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
     catch (e) { toast('Не хватает места: удали пару фото у точек'); }
+    if (!fromSync && window.AQSync) window.AQSync.onSave();
   }
 
   // ---------- утилиты ----------
@@ -202,6 +203,7 @@
     else meMarker.setLatLng([myPos.lat, myPos.lng]);
     if (!centeredOnMe) { centeredOnMe = true; map.setView([myPos.lat, myPos.lng], Math.max(map.getZoom(), 15)); }
     checkZones();
+    if (window.AQSync) window.AQSync.onPosition();
   }
   function geoError(err) {
     if (err && err.code === 1) toast('Нет доступа к геолокации. iPhone: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании».');
@@ -303,6 +305,7 @@
   function route() {
     const h = location.hash.replace(/^#\/?/, '') || 'map';
     const [name, arg] = h.split('/');
+    if (name === 'join') { if (window.AQSync) window.AQSync.handleJoinLink(arg); return; }
     const tab = { map: 'map', quests: 'quests', point: 'quests', categories: 'categories', profile: 'profile', grant: 'profile', ranks: 'profile', order: 'profile' }[name] || 'map';
     document.querySelectorAll('#tabbar a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
     if (!S.profile.name && name !== 'order') return renderOnboarding();
@@ -676,6 +679,8 @@
         if (!p) return '<div class="stamp empty" style="transform:rotate(' + ((i % 3) * 6 - 6) + 'deg)"><span class="jp">?</span><span class="mono">———</span></div>';
         return '<a class="stamp" href="#/point/' + p.id + '" style="transform:rotate(' + ((i % 3) * 6 - 6) + 'deg)"><span class="jp">' + esc(cat(p.cat).jp.slice(0, 1)) + '</span><span class="mono">' + esc(p.name.toUpperCase()) + '</span></a>';
       }).join('') + '</div>';
+    } else if (profileTab === 'squad' && window.AQSync && window.AQSync.enabled) {
+      tabHtml = window.AQSync.squadHtml();
     } else if (profileTab === 'squad') {
       tabHtml = (S.profile.founder ? '' : '<div class="empty">Выдавать ранги может только ZERO-CLASS. Здесь ты ведёшь список своего отряда.</div>') +
         '<div>' + (S.friends.length ? S.friends.map((f) => `<div class="list-item" style="cursor:default">
@@ -697,7 +702,8 @@
         <div class="sep"></div>
         ${S.profile.founder ? '<div class="small">Режим основателя включён на этом устройстве.</div><button class="btn sm ghost" id="founder-off">ВЫКЛЮЧИТЬ РЕЖИМ ОСНОВАТЕЛЯ</button>'
           : '<div class="eyebrow">РЕЖИМ ОСНОВАТЕЛЯ</div><form class="row" id="founder"><input class="input grow" name="c" placeholder="Код основателя" autocomplete="off" aria-label="Код основателя"><button class="btn sm ghost" style="height:46px">ВОЙТИ</button></form>'}
-        <a class="btn sm ghost" href="#/ranks">ЛЕСТНИЦА РАНГОВ</a>`;
+        <a class="btn sm ghost" href="#/ranks">ЛЕСТНИЦА РАНГОВ</a>
+        ${window.AQSync ? window.AQSync.settingsHtml() : ''}`;
     }
     const hist = S.profile.orders.slice(-1)[0];
     screen(`
@@ -739,6 +745,7 @@
     if (af) af.onsubmit = (e) => { e.preventDefault(); const n = e.target.n.value.trim(); if (!n) return; S.friends.push({ id: uid(), name: n, rank: 'r3', history: [] }); save(); renderProfile(); };
     if ($('#set-name-save')) $('#set-name-save').onclick = () => { const n = $('#set-name').value.trim(); if (n) { S.profile.name = n; save(); toast('Сохранено'); renderProfile(); } };
     if ($('#exp')) $('#exp').onclick = exportData;
+    if (window.AQSync) { window.AQSync.bindSettings(); window.AQSync.bindSquad(); }
     if ($('#ava-me')) $('#ava-me').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; S.profile.avatar = await squareImage(f, 320); save(); renderProfile(); };
     view().querySelectorAll('[data-fa]').forEach((inp) => inp.onchange = async (e) => {
       const f = e.target.files[0], fr = S.friends.find((x) => x.id === inp.dataset.fa);
@@ -889,6 +896,24 @@
   // ---------- старт ----------
   initMap();
   route();
+  if (window.AQSync) {
+    window.AQSync.init({
+      S: () => S, save, toast, esc, avatar, fmtNum, fmtDist, distance,
+      RANKS, ZERO, rankById, rankIndex, rankFromXP, totalXP,
+      map: () => map,
+      myPos: () => (myPos ? { lat: myPos.lat, lng: myPos.lng, acc: myAcc } : null),
+      requestPosition: () => { startWatch(); if (navigator.geolocation) navigator.geolocation.getCurrentPosition(onPos, geoError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }); },
+      rerender: () => route(),
+      openSquadTab: () => { profileTab = 'squad'; if (location.hash !== '#/profile') location.hash = '#/profile'; else route(); },
+      onSyncChange: () => {
+        const h = location.hash || '';
+        const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+        if (typing || document.querySelector('.sheet-bg')) return;
+        if (/^#\/profile/.test(h)) renderProfile();
+        else if (/^#\/?(map)?$/.test(h)) { const b = $('.rankbadge'); const r = myRank(); if (b && !b.textContent.includes(r.name)) renderMap(); }
+      }
+    });
+  }
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
